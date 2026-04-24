@@ -994,6 +994,7 @@
         var _lastCommitSha = localStorage.getItem('github_lastCommitSha') || '';
         var _lastCheckTime = 0;
         var _checkInterval = null;
+        var _isFirstCheck = true; // 标记是否是首次检测
 
         // 检查 GitHub 配置是否完整
         function isGitHubConfigured() {
@@ -1287,13 +1288,14 @@
                     var author = commits[0].commit.author.name;
                     var message = commits[0].commit.message;
 
-                    // 如果有新的提交
-                    if (_lastCommitSha && _lastCommitSha !== latestSha) {
+                    // 如果有新的提交（首次检测不提示，只记录当前状态）
+                    if (_lastCommitSha && _lastCommitSha !== latestSha && !_isFirstCheck) {
                         showUpdateBanner(author, message);
                     }
 
                     _lastCommitSha = latestSha;
                     localStorage.setItem('github_lastCommitSha', latestSha);
+                    _isFirstCheck = false;
                 }
             } catch (e) {
                 console.log('检测更新失败:', e);
