@@ -1,0 +1,347 @@
+{
+  "activityMeta": [
+    {
+      "activityKey": "OpenBox",
+      "activityName": "熊！与金色传说",
+      "activityType": "深度活动",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "DeepWindowBoard",
+      "activityName": "采矿棋盘",
+      "activityType": "副棋盘",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "FarmWindowBoard",
+      "activityName": "农场棋盘",
+      "activityType": "副棋盘",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "MultiWindowBoard",
+      "activityName": "多层棋盘",
+      "activityType": "副棋盘",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "SoloWindowBoard",
+      "activityName": "单层棋盘",
+      "activityType": "副棋盘",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "RegularExtraToken",
+      "activityName": "可丽饼之日",
+      "activityType": "深度活动",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "Puzzle",
+      "activityName": "拼图",
+      "activityType": "深度活动",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "RandomSort",
+      "activityName": "织织毛线",
+      "activityType": "深度活动",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "WindowboardExtraCoin",
+      "activityName": "仙豆漫游指南",
+      "activityType": "促活活动",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "OptionalRace",
+      "activityName": "矿脉探险家",
+      "activityType": "深度活动",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "OrderEnergy",
+      "activityName": "元气觉醒",
+      "activityType": "feature",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "BubbleDiscount",
+      "activityName": "气泡狂欢节",
+      "activityType": "feature",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "ClothingRank",
+      "activityName": "仙境飞升",
+      "activityType": "促活活动",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "CatBalloon",
+      "activityName": "烟花冲刺",
+      "activityType": "促活活动",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "StarChallenge",
+      "activityName": "摘星挑战",
+      "activityType": "促活活动",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "SuperInfiniteStock",
+      "activityName": "超级无限库存",
+      "activityType": "feature",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "InfiniteStock",
+      "activityName": "无限库存",
+      "activityType": "feature",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "CollectCardsDoubleGet",
+      "activityName": "双重曝光",
+      "activityType": "集卡活动",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "CollectCardsEnergy",
+      "activityName": "集卡体力后援",
+      "activityType": "集卡活动",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "FestivalRank",
+      "activityName": "节日活动排行榜",
+      "activityType": "节日活动",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "FestivalExtraToken",
+      "activityName": "节日代币活动",
+      "activityType": "节日活动",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "FestivalGainTime",
+      "activityName": "积分狂欢",
+      "activityType": "节日活动",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "NewFestival",
+      "activityName": "节日活动",
+      "activityType": "节日活动",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "RestaurantList",
+      "activityName": "小店清单",
+      "activityType": "长线活动",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "Pass",
+      "activityName": "通行证",
+      "activityType": "长线活动",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "DollMachine",
+      "activityName": "娃娃机",
+      "activityType": "长线活动",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "CollectCardsDrift",
+      "activityName": "银河许愿",
+      "activityType": "集卡活动",
+      "activityDescription": ""
+    },
+    {
+      "activityKey": "CollectCards",
+      "activityName": "集卡活动",
+      "activityType": "集卡活动",
+      "activityDescription": "集卡活动配置"
+    }
+  ],
+  "dependencies": [
+    {
+      "parent": "CollectCards",
+      "child": "CollectCardsEnergy"
+    },
+    {
+      "parent": "CollectCards",
+      "child": "CollectCardsDoubleGet"
+    },
+    {
+      "parent": "CollectCards",
+      "child": "CollectCardsDrift"
+    }
+  ],
+  "mutexGroups": [
+    {
+      "id": "group1",
+      "name": "周期活动互斥组",
+      "activities": [
+        "CoinActivity",
+        "BalloonActivity",
+        "SugarActivity"
+      ]
+    },
+    {
+      "id": "group2",
+      "name": "能量相关互斥组",
+      "activities": [
+        "CollectCardsEnergy",
+        "SpecialDrop"
+      ]
+    }
+  ],
+  "uiSettings": {
+    "configOrder": {
+      "gift": [
+        "1776308010000"
+      ],
+      "集卡活动": [
+        "1776308010000",
+        "1776426605706",
+        "1777021687241",
+        "1777021783989"
+      ],
+      "default": [
+        "1777019810897"
+      ],
+      "feature": [
+        "1777021908381",
+        "1777022017976",
+        "1777022370847",
+        "1777022533454"
+      ],
+      "festival": [
+        "1777022113860"
+      ],
+      "长线活动": [
+        "1777019810897",
+        "1777019924045",
+        "1777019994844"
+      ],
+      "节日活动": [
+        "1777020112045",
+        "1777020184496",
+        "1777020351606",
+        "1777020459614"
+      ],
+      "促活活动": [
+        "1777022113860",
+        "1777022203555",
+        "1777022321440",
+        "1777022834347"
+      ],
+      "深度活动": [
+        "1777022761318",
+        "1777023122289",
+        "1777023523395",
+        "1777023566279",
+        "1777023929025"
+      ],
+      "副棋盘": [
+        "1777023755436",
+        "1777023809127",
+        "1777023837496",
+        "1777023859136"
+      ]
+    },
+    "activityTypeOrder": [
+      "festival",
+      "feature",
+      "长线活动",
+      "节日活动",
+      "集卡活动",
+      "gift",
+      "促活活动",
+      "深度活动",
+      "副棋盘",
+      "default"
+    ],
+    "typeGroupCollapsed": {
+      "festival": false,
+      "gift": false,
+      "feature": true,
+      "default": false,
+      "集卡活动": false,
+      "长线活动": false,
+      "节日活动": false,
+      "促活活动": false,
+      "深度活动": false
+    },
+    "mergeGroups": [
+      {
+        "id": "mg_1777022093312",
+        "name": "无限库存",
+        "color": "#722ed1",
+        "configIds": [
+          "1777022017976",
+          "1777021908381"
+        ],
+        "collapsed": true
+      }
+    ],
+    "heatmapRules": [
+      {
+        "min": 1,
+        "color": "#F6FFED",
+        "label": "空档期"
+      },
+      {
+        "min": 2,
+        "color": "#FFEC3D",
+        "label": "少量"
+      },
+      {
+        "min": 8,
+        "color": "#16d419",
+        "label": "过量"
+      },
+      {
+        "min": 15,
+        "color": "#FF7A45",
+        "label": "适中"
+      }
+    ],
+    "barColors": {
+      "1777023929025": "#FADB14",
+      "1777023859136": "#722ED1",
+      "1777023837496": "#B7EB8F",
+      "1777023809127": "#FA541C",
+      "1777023755436": "#85A5FF",
+      "1777023566279": "#FADB14",
+      "1777023523395": "#AD6800",
+      "1777023122289": "#FF85C0",
+      "1777022834347": "#389E0D",
+      "1777022761318": "#EFDBFF",
+      "1777022533454": "#BAE0FF",
+      "1777022370847": "#FA541C",
+      "1777022321440": "#061178",
+      "1777022203555": "#FF7A45",
+      "1777022113860": "#13C2C2",
+      "1777022017976": "#9254DE",
+      "1777021908381": "#D3ADF7",
+      "1777021783989": "#C41D7F",
+      "1777021687241": "#FFFB8F",
+      "1777020459614": "#91CAFF",
+      "1777020351606": "#FAAD14",
+      "1777020184496": "#FA541C",
+      "1777020112045": "#95DE64",
+      "1777019994844": "#FFF566",
+      "1777019924045": "#D3F261",
+      "1777019810897": "#F759AB",
+      "1776426605706": "#2F54EB",
+      "1776308010000": "#A8071A"
+    }
+  }
+}
