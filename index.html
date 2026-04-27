@@ -452,8 +452,9 @@
         .timeline-canvas { position: relative; }
 
         .tick-bar {
-            position: sticky; top: 0;
+            position: sticky; top: 0; z-index: 100;
             border-bottom: 2px solid #ddd; display: flex;
+            background: #fff;
         }
         .tick-label-col {
             width: 220px; flex-shrink: 0; padding: 8px 12px;
@@ -490,7 +491,7 @@
         .weekend-bg { position: absolute; top: 0; bottom: 0; background: #f0f0f0; z-index: -1; }
 
         /* 热力条 */
-        .heatmap-bar { display: flex; border-bottom: 1px solid #e8e8e8; height: 6px; position: relative; z-index: 5; }
+        .heatmap-bar { display: flex; border-bottom: 1px solid #e8e8e8; height: 6px; position: sticky; top: 66px; z-index: 99; background: #fff; }
         .heatmap-label {
             width: 220px; flex-shrink: 0;
             border-right: 2px solid #ddd; background: #fafafa;
