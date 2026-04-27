@@ -1103,9 +1103,11 @@
         }
 
         // 获取 GitHub 文件内容
-        async function getGitHubFile(filename) {
+        // 如果 fullPath 为 true，则 filename 已经是完整路径，不再添加 path 前缀
+        async function getGitHubFile(filename, fullPath) {
+            var filePath = fullPath ? filename : (_githubConfig.path + '/' + filename);
             var url = 'https://api.github.com/repos/' + _githubConfig.owner + '/' + _githubConfig.repo +
-                '/contents/' + _githubConfig.path + '/' + filename + '?ref=' + _githubConfig.branch;
+                '/contents/' + filePath + '?ref=' + _githubConfig.branch;
 
             var response = await fetch(url, {
                 headers: {
@@ -1994,9 +1996,9 @@
             }
 
             try {
-                // 加载 schedule.csv 从版本目录
+                // 加载 schedule.csv 从版本目录（schedulePath 已经是完整路径）
                 var schedulePath = _githubConfig.path + '/' + versionDir + '/' + scheduleFileName;
-                var scheduleFile = await getGitHubFile(schedulePath);
+                var scheduleFile = await getGitHubFile(schedulePath, true);
 
                 // 加载 settings.json 从 data 根目录
                 var settingsFile;
