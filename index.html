@@ -760,6 +760,7 @@
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <span style="font-size: 14px; color: #666;">当前版本：</span>
                             <span id="currentVersionDisplay" style="font-size: 20px; font-weight: 700; color: #346CE5;">6.71.1</span>
+                            <button class="btn btn-secondary btn-sm" style="padding: 2px 8px; font-size: 12px;" onclick="showVersionSettings()">版本管理</button>
                         </div>
                         <button class="btn btn-secondary btn-sm" onclick="showGitHubSettings()">⚙️ 云同步设置</button>
                     </div>
@@ -1163,7 +1164,7 @@
             }
         }
 
-        // 保存数据到 GitHub
+        // 保存数据到 GitHub（版本化）
         async function saveToGitHub() {
             if (!isGitHubConfigured()) {
                 alert('请先配置 GitHub 云同步设置');
@@ -1176,45 +1177,59 @@
             saveBtn.textContent = '⏳ 保存中...';
 
             try {
-                // 获取当前数据的 SHA（如果文件存在）
-                var scheduleSha = null;
-                var settingsSha = null;
+                // 1. 递增版本号
+                var newVersion = incrementPatchVersion();
+                var timestamp = generateTimestamp();
 
-                try {
-                    var scheduleFile = await getGitHubFile('schedule.csv');
-                    scheduleSha = scheduleFile.sha;
-                } catch (e) {
-                    console.log('schedule.csv 不存在，将创建新文件');
-                }
+                // 2. 确定版本目录
+                var versionDir = getVersionDir(newVersion);
 
-                try {
-                    var settingsFile = await getGitHubFile('settings.json');
-                    settingsSha = settingsFile.sha;
-                } catch (e) {
-                    console.log('settings.json 不存在，将创建新文件');
-                }
+                // 3. 生成文件名
+                var scheduleFile = 'schedule_' + newVersion + '_' + timestamp + '.csv';
+                var settingsFile = 'settings_' + newVersion + '_' + timestamp + '.json';
 
-                // 生成 CSV 内容
+                // 4. 生成内容
                 var csvContent = generateScheduleCSV();
                 var jsonContent = generateSettingsJSON();
 
-                // 提交到 GitHub
-                var commitMessage = '更新排期配置 - ' + new Date().toLocaleString('zh-CN');
+                // 5. 上传文件到 data/{versionDir}/
+                var commitMessage = '版本 ' + newVersion + ' - ' + new Date().toLocaleString('zh-CN');
 
-                // 上传 schedule.csv
-                await uploadToGitHub('schedule.csv', csvContent, scheduleSha, commitMessage);
+                await uploadToGitHub(versionDir + '/' + scheduleFile, csvContent, null, commitMessage);
+                await uploadToGitHub(versionDir + '/' + settingsFile, jsonContent, null, commitMessage);
 
-                // 上传 settings.json
-                await uploadToGitHub('settings.json', jsonContent, settingsSha, commitMessage);
+                // 6. 更新 latest.json
+                var latestContent = JSON.stringify({
+                    version: newVersion,
+                    path: versionDir,
+                    scheduleFile: scheduleFile,
+                    settingsFile: settingsFile,
+                    timestamp: timestamp,
+                    updateTime: new Date().toLocaleString('zh-CN')
+                }, null, 2);
 
-                alert('✅ 保存成功！数据已同步到 GitHub');
+                // 获取 existing latest.json SHA
+                var latestSha = null;
+                try {
+                    var latestFile = await getGitHubFile('latest.json');
+                    latestSha = latestFile.sha;
+                } catch (e) {
+                    console.log('latest.json 不存在，将创建新文件');
+                }
+
+                await uploadToGitHub('latest.json', latestContent, latestSha, '更新最新版本指针 → ' + newVersion);
+
+                // 7. 更新界面
+                updateVersionDisplay(newVersion);
 
                 // 更新数据快照（保存后不再视为本地修改）
                 _loadedDataSnapshot = JSON.stringify({ schedule: _dataCache || [], settings: _settingsCache || {} });
 
                 // 更新最后提交信息，立即获取新的 commit SHA 避免误触发更新提示
                 _lastCheckTime = Date.now();
-                checkForUpdates(); // 立即同步最新的 commit SHA
+                checkForUpdates();
+
+                alert('✅ 保存成功！\n版本：' + newVersion + '\n文件：' + scheduleFile);
 
             } catch (e) {
                 console.error('保存失败:', e);
@@ -1708,14 +1723,338 @@
 
         // 获取当前版本号（保留兼容性）
         function getCurrentVersion() {
-            return '6.71';
+            return localStorage.getItem('currentVersion') || '6.71.0';
         }
 
-        // 更新版本显示（保留兼容性）
-        function updateVersionDisplay() {
+        // 解析版本号
+        function parseVersion(version) {
+            var parts = (version || '6.71.0').split('.');
+            return {
+                major: parseInt(parts[0]) || 6,
+                minor: parseInt(parts[1]) || 71,
+                patch: parseInt(parts[2]) || 0
+            };
+        }
+
+        // 获取下一个版本号
+        function getNextVersion() {
+            var current = parseVersion(getCurrentVersion());
+            return current.major + '.' + current.minor + '.' + (current.patch + 1);
+        }
+
+        // 递增补丁版本号
+        function incrementPatchVersion() {
+            var current = parseVersion(getCurrentVersion());
+            var newVersion = current.major + '.' + current.minor + '.' + (current.patch + 1);
+            localStorage.setItem('currentVersion', newVersion);
+            return newVersion;
+        }
+
+        // 获取版本目录
+        function getVersionDir(version) {
+            var parts = version.split('.');
+            return parts[0] + '.' + parts[1];
+        }
+
+        // 生成时间戳
+        function generateTimestamp() {
+            var now = new Date();
+            var year = now.getFullYear();
+            var month = String(now.getMonth() + 1).padStart(2, '0');
+            var day = String(now.getDate()).padStart(2, '0');
+            var hour = String(now.getHours()).padStart(2, '0');
+            var minute = String(now.getMinutes()).padStart(2, '0');
+            return year + month + day + hour + minute;
+        }
+
+        // 更新版本显示
+        function updateVersionDisplay(version) {
+            if (version) {
+                localStorage.setItem('currentVersion', version);
+            }
             var displayEl = document.getElementById('currentVersionDisplay');
             if (displayEl) {
-                displayEl.textContent = getCurrentVersion();
+                displayEl.textContent = version || getCurrentVersion();
+            }
+        }
+
+        // 显示版本管理弹窗
+        function showVersionSettings() {
+            showVersionSettingsModal();
+        }
+
+        // 显示版本管理弹窗
+        async function showVersionSettingsModal() {
+            var modal = document.getElementById('versionSettingsModal');
+            if (modal) {
+                modal.style.display = 'flex';
+                await refreshVersionList();
+                return;
+            }
+
+            var current = parseVersion(getCurrentVersion());
+            var html = '<div id="versionSettingsModal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000;">' +
+                '<div style="background:white;border-radius:8px;padding:24px;width:700px;max-width:95%;max-height:85vh;overflow-y:auto;">' +
+                '<h3 style="margin:0 0 20px 0;display:flex;justify-content:space-between;align-items:center;">' +
+                '版本管理' +
+                '<button onclick="document.getElementById(\'versionSettingsModal\').style.display=\'none\'" style="border:none;background:none;font-size:20px;cursor:pointer;">×</button>' +
+                '</h3>' +
+
+                // 当前版本信息
+                '<div style="margin-bottom:16px;padding:12px;background:#e6f7ff;border-radius:6px;font-size:13px;color:#1890ff;">' +
+                '当前版本：<b>' + getCurrentVersion() + '</b><br>' +
+                '上传后版本将变为：<b>' + getNextVersion() + '</b>' +
+                '</div>' +
+
+                // 新建主版本
+                '<div style="margin-bottom:16px;display:flex;gap:10px;align-items:center;">' +
+                '<div style="flex:1;display:flex;gap:8px;">' +
+                '<input type="number" id="majorVersionInput" value="' + current.major + '" min="0" style="width:80px;padding:8px;border:1px solid #ddd;border-radius:4px;" placeholder="大版本">' +
+                '<span style="line-height:38px;">.</span>' +
+                '<input type="number" id="minorVersionInput" value="' + current.minor + '" min="0" style="width:80px;padding:8px;border:1px solid #ddd;border-radius:4px;" placeholder="批次号">' +
+                '</div>' +
+                '<button class="btn btn-primary" style="white-space:nowrap;" onclick="createNewMainVersion()">新建主版本</button>' +
+                '</div>' +
+
+                // 版本列表
+                '<div style="border:1px solid #ddd;border-radius:6px;overflow:hidden;">' +
+                '<div style="background:#f5f5f5;padding:10px 12px;font-weight:600;border-bottom:1px solid #ddd;display:flex;justify-content:space-between;align-items:center;">' +
+                '<span>云端版本列表</span>' +
+                '<button class="btn btn-secondary btn-sm" onclick="refreshVersionList()">🔄 刷新</button>' +
+                '</div>' +
+                '<div id="versionListContainer" style="max-height:300px;overflow-y:auto;padding:12px;">' +
+                '<div style="text-align:center;color:#999;padding:20px;">加载中...</div>' +
+                '</div>' +
+                '</div>' +
+
+                '<div style="margin-top:16px;display:flex;gap:10px;justify-content:flex-end;">' +
+                '<button class="btn btn-secondary" onclick="document.getElementById(\'versionSettingsModal\').style.display=\'none\'">关闭</button>' +
+                '</div>' +
+                '</div></div>';
+
+            document.body.insertAdjacentHTML('beforeend', html);
+
+            // 加载版本列表
+            await refreshVersionList();
+        }
+
+        // 获取版本列表
+        async function fetchVersionListFromGitHub() {
+            if (!isGitHubConfigured()) {
+                return [];
+            }
+
+            var url = 'https://api.github.com/repos/' + _githubConfig.owner + '/' + _githubConfig.repo +
+                '/contents/' + _githubConfig.path + '?ref=' + _githubConfig.branch;
+
+            var response = await fetch(url, {
+                headers: {
+                    'Authorization': 'token ' + _githubConfig.token,
+                    'Accept': 'application/vnd.github.v3+json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('获取版本列表失败');
+            }
+
+            var contents = await response.json();
+            var dirs = contents.filter(function(item) {
+                return item.type === 'dir' && /^\d+\.\d+$/.test(item.name);
+            }).map(function(item) {
+                return item.name;
+            }).sort(function(a, b) {
+                return b.localeCompare(a, undefined, { numeric: true });
+            });
+
+            return dirs;
+        }
+
+        // 获取版本文件列表
+        async function fetchVersionFilesFromGitHub(versionDir) {
+            var url = 'https://api.github.com/repos/' + _githubConfig.owner + '/' + _githubConfig.repo +
+                '/contents/' + _githubConfig.path + '/' + versionDir + '?ref=' + _githubConfig.branch;
+
+            var response = await fetch(url, {
+                headers: {
+                    'Authorization': 'token ' + _githubConfig.token,
+                    'Accept': 'application/vnd.github.v3+json'
+                }
+            });
+
+            if (!response.ok) {
+                return [];
+            }
+
+            var contents = await response.json();
+            var scheduleFiles = contents.filter(function(item) {
+                return item.type === 'file' && item.name.startsWith('schedule_') && item.name.endsWith('.csv');
+            }).map(function(item) {
+                // 从文件名解析版本和时间戳: schedule_6.71.0_202604271200.csv
+                var match = item.name.match(/schedule_(\d+\.\d+\.\d+)_(\d+)\.csv/);
+                return {
+                    name: item.name,
+                    version: match ? match[1] : 'unknown',
+                    timestamp: match ? match[2] : ''
+                };
+            }).sort(function(a, b) {
+                return b.timestamp.localeCompare(a.timestamp);
+            });
+
+            return scheduleFiles;
+        }
+
+        // 刷新版本列表
+        async function refreshVersionList() {
+            var container = document.getElementById('versionListContainer');
+            if (!container) return;
+
+            container.innerHTML = '<div style="text-align:center;color:#999;padding:20px;">加载中...</div>';
+
+            try {
+                var versionDirs = await fetchVersionListFromGitHub();
+                var currentVersion = getCurrentVersion();
+
+                if (versionDirs.length === 0) {
+                    container.innerHTML = '<div style="text-align:center;color:#999;padding:20px;">暂无版本数据</div>';
+                    return;
+                }
+
+                var html = '';
+
+                for (var i = 0; i < versionDirs.length; i++) {
+                    var dir = versionDirs[i];
+                    var files = await fetchVersionFilesFromGitHub(dir);
+
+                    html += '<div style="margin-bottom:12px;border:1px solid #e8e8e8;border-radius:6px;overflow:hidden;">';
+                    html += '<div style="background:#fafafa;padding:8px 12px;font-weight:600;display:flex;justify-content:space-between;align-items:center;">';
+                    html += '<span>📁 ' + dir + '</span>';
+                    html += '<span style="font-size:12px;color:#999;">' + files.length + ' 个版本</span>';
+                    html += '</div>';
+
+                    if (files.length > 0) {
+                        html += '<div style="padding:8px 12px;">';
+                        files.forEach(function(file) {
+                            var isCurrent = file.version === currentVersion;
+                            var timestampFormatted = formatTimestamp(file.timestamp);
+
+                            html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f0f0f0;' + (isCurrent ? 'background:#e6f7ff;margin:0 -12px;padding:6px 12px;' : '') + '">';
+                            html += '<div>';
+                            html += '<span style="font-weight:500;">' + file.version + '</span>';
+                            if (isCurrent) {
+                                html += ' <span style="background:#346CE5;color:white;padding:2px 6px;border-radius:3px;font-size:11px;">当前</span>';
+                            }
+                            html += '<span style="margin-left:10px;font-size:12px;color:#999;">' + timestampFormatted + '</span>';
+                            html += '</div>';
+                            html += '<div>';
+                            if (!isCurrent) {
+                                html += '<button class="btn btn-secondary btn-sm" style="margin-right:5px;" onclick="loadVersionFromGitHub(\'' + dir + '\', \'' + file.version + '\', \'' + file.name + '\')">切换</button>';
+                            }
+                            html += '</div>';
+                            html += '</div>';
+                        });
+                        html += '</div>';
+                    } else {
+                        html += '<div style="padding:12px;color:#999;text-align:center;">暂无版本文件</div>';
+                    }
+
+                    html += '</div>';
+                }
+
+                container.innerHTML = html;
+
+            } catch (e) {
+                container.innerHTML = '<div style="text-align:center;color:#f5222d;padding:20px;">加载失败: ' + e.message + '</div>';
+            }
+        }
+
+        // 格式化时间戳
+        function formatTimestamp(timestamp) {
+            if (!timestamp || timestamp.length < 12) return timestamp;
+            var year = timestamp.substring(0, 4);
+            var month = timestamp.substring(4, 6);
+            var day = timestamp.substring(6, 8);
+            var hour = timestamp.substring(8, 10);
+            var minute = timestamp.substring(10, 12);
+            return year + '-' + month + '-' + day + ' ' + hour + ':' + minute;
+        }
+
+        // 从 GitHub 加载指定版本
+        async function loadVersionFromGitHub(versionDir, version, scheduleFileName) {
+            if (!confirm('确定要切换到版本 ' + version + ' 吗？\n当前未保存的更改将丢失。')) {
+                return;
+            }
+
+            try {
+                // 获取 settings 文件名
+                var settingsFileName = scheduleFileName.replace('schedule_', 'settings_').replace('.csv', '.json');
+
+                // 加载文件
+                var schedulePath = _githubConfig.path + '/' + versionDir + '/' + scheduleFileName;
+                var settingsPath = _githubConfig.path + '/' + versionDir + '/' + settingsFileName;
+
+                var scheduleFile = await getGitHubFile(schedulePath);
+                var settingsFile = await getGitHubFile(settingsPath);
+
+                // 解析内容
+                var csvContent = decodeBase64(scheduleFile.content);
+                var jsonContent = decodeBase64(settingsFile.content);
+
+                // 更新缓存
+                _dataCache = parseCSV(csvContent);
+                _settingsCache = JSON.parse(jsonContent);
+
+                // 更新本地版本号
+                localStorage.setItem('currentVersion', version);
+
+                // 更新数据快照
+                _loadedDataSnapshot = JSON.stringify({ schedule: _dataCache, settings: _settingsCache });
+
+                // 更新界面
+                updateVersionDisplay(version);
+                currentConfig = null;
+                renderConfigList();
+                renderTimeline();
+
+                // 关闭弹窗
+                document.getElementById('versionSettingsModal').style.display = 'none';
+
+                tlShowToast('✅ 已切换到版本 ' + version, 'success');
+
+            } catch (e) {
+                console.error('加载版本失败:', e);
+                tlShowToast('❌ 加载版本失败: ' + e.message, 'error');
+            }
+        }
+
+        // 新建主版本
+        async function createNewMainVersion() {
+            var major = parseInt(document.getElementById('majorVersionInput').value) || 6;
+            var minor = parseInt(document.getElementById('minorVersionInput').value) || 71;
+            var newVersion = major + '.' + minor + '.0';
+            var versionDir = major + '.' + minor;
+
+            if (newVersion === getCurrentVersion()) {
+                alert('版本号与当前版本相同');
+                return;
+            }
+
+            // 检查 GitHub 上是否已有该版本
+            try {
+                var existingVersions = await fetchVersionListFromGitHub();
+                if (existingVersions.includes(versionDir)) {
+                    alert('❌ 版本 ' + versionDir + ' 已存在于云端，请使用其他版本号');
+                    return;
+                }
+            } catch (e) {
+                console.log('检查云端版本失败，继续创建:', e);
+            }
+
+            if (confirm('确定要创建新版本 ' + newVersion + ' 吗？\n这将更新版本号并保存到云端。')) {
+                localStorage.setItem('currentVersion', newVersion);
+                updateVersionDisplay(newVersion);
+                document.getElementById('versionSettingsModal').style.display = 'none';
+                await saveToGitHub();
             }
         }
 
