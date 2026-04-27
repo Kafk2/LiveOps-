@@ -6226,6 +6226,7 @@
 
         function saveTlPanel() {
             if (!currentConfig) return;
+            saveSnapshot(); // 保存快照以支持撤销
             var keyEl = document.getElementById('tl_activityKey');
             var keyVal = keyEl ? keyEl.value.trim() : '';
             if (!keyVal) { alert('活动Key不能为空'); return; }
