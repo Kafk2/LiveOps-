@@ -276,8 +276,8 @@
       "feature": false,
       "default": false,
       "集卡活动": false,
-      "长线活动": true,
-      "节日活动": true,
+      "长线活动": false,
+      "节日活动": false,
       "促活活动": false,
       "深度活动": true,
       "副棋盘": true
