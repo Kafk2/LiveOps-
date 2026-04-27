@@ -985,6 +985,20 @@
 
         // 全局数据缓存
         var _dataCache = null;
+
+        // 全局键盘快捷键（立即绑定）
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey || e.metaKey) {
+                var key = e.key.toLowerCase();
+                if (key === 'z' && typeof undo === 'function') {
+                    e.preventDefault();
+                    undo();
+                } else if (key === 'y' && typeof redo === 'function') {
+                    e.preventDefault();
+                    redo();
+                }
+            }
+        });
         var _settingsCache = null;
 
         // 撤销/重做栈
@@ -1831,20 +1845,6 @@
                 renderConfigList();
                 renderConfigForm(); // 初始化时显示空状态
                 switchTab('timeline');
-
-                // 添加键盘快捷键监听
-                document.addEventListener('keydown', function(e) {
-                    if (e.ctrlKey || e.metaKey) {
-                        var key = e.key.toLowerCase();
-                        if (key === 'z') {
-                            e.preventDefault();
-                            undo();
-                        } else if (key === 'y') {
-                            e.preventDefault();
-                            redo();
-                        }
-                    }
-                });
 
                 // 开始检测 GitHub 更新
                 startUpdateCheck();
