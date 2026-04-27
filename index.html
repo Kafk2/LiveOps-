@@ -740,11 +740,14 @@
 </head>
 <body style="">
     <!-- 更新提示条 -->
-    <div id="updateBanner" style="display: none; position: fixed; top: 0; left: 0; right: 0; background: #e6f7ff; border-bottom: 1px solid #91d5ff; padding: 10px 20px; z-index: 9999; display: flex; justify-content: space-between; align-items: center;">
-        <span style="color: #0050b3;">🔄 <span id="updateMessage">数据已更新，请刷新页面查看最新内容</span></span>
-        <div>
-            <button class="btn btn-primary btn-sm" onclick="location.reload()" style="margin-right: 10px;">立即刷新</button>
-            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('updateBanner').style.display='none'">稍后</button>
+    <div id="updateBanner" style="display: none; position: fixed; top: 0; left: 0; right: 0; background: #fff7e6; border-bottom: 1px solid #ffd591; padding: 12px 20px; z-index: 9999; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <span style="color: #d46b08; font-weight: 500;">⚠️ <span id="updateMessage">云端配置已更新</span></span>
+            <div style="display: flex; gap: 10px;">
+                <button class="btn btn-warning btn-sm" onclick="handleUseCloudVersion()" style="background: #fa8c16; color: white;">使用云端版本</button>
+                <button class="btn btn-success btn-sm" onclick="handleSaveLocalVersion()" style="background: #52c41a; color: white;">保存本地版本</button>
+                <button class="btn btn-secondary btn-sm" onclick="document.getElementById('updateBanner').style.display='none'">稍后处理</button>
+            </div>
         </div>
     </div>
 
@@ -996,6 +999,7 @@
         var _lastCheckTime = 0;
         var _checkInterval = null;
         var _isFirstCheck = true; // 标记是否是首次检测
+        var _loadedDataSnapshot = null; // 加载时的数据快照，用于检测本地修改
 
         // 检查 GitHub 配置是否完整
         function isGitHubConfigured() {
@@ -1115,6 +1119,50 @@
             return await response.json();
         }
 
+        // 从 GitHub 加载数据
+        async function loadFromGitHub() {
+            if (!isGitHubConfigured()) {
+                throw new Error('请先配置 GitHub 云同步设置');
+            }
+
+            try {
+                // 获取 schedule.csv
+                var scheduleFile = await getGitHubFile('schedule.csv');
+                var scheduleContent = decodeBase64(scheduleFile.content);
+                var schedule = parseCSV(scheduleContent);
+
+                // 获取 settings.json
+                var settingsFile = await getGitHubFile('settings.json');
+                var settingsContent = decodeBase64(settingsFile.content);
+                var settings = JSON.parse(settingsContent);
+
+                // 更新本地数据
+                _dataCache = schedule;
+                _settingsCache = settings;
+
+                // 更新数据快照（加载后不再视为本地修改）
+                _loadedDataSnapshot = JSON.stringify({ schedule: schedule, settings: settings });
+
+                // 更新 UI
+                renderConfigList();
+                renderTimeline();
+
+                console.log('从 GitHub 加载完成:', schedule.length, '条配置');
+            } catch (e) {
+                console.error('从 GitHub 加载失败:', e);
+                throw e;
+            }
+        }
+
+        // Base64 解码
+        function decodeBase64(base64) {
+            try {
+                return decodeURIComponent(escape(atob(base64)));
+            } catch (e) {
+                return atob(base64);
+            }
+        }
+
         // 保存数据到 GitHub
         async function saveToGitHub() {
             if (!isGitHubConfigured()) {
@@ -1161,8 +1209,12 @@
 
                 alert('✅ 保存成功！数据已同步到 GitHub');
 
-                // 更新最后提交信息
+                // 更新数据快照（保存后不再视为本地修改）
+                _loadedDataSnapshot = JSON.stringify({ schedule: _dataCache || [], settings: _settingsCache || {} });
+
+                // 更新最后提交信息，立即获取新的 commit SHA 避免误触发更新提示
                 _lastCheckTime = Date.now();
+                checkForUpdates(); // 立即同步最新的 commit SHA
 
             } catch (e) {
                 console.error('保存失败:', e);
@@ -1303,14 +1355,57 @@
             }
         }
 
+        // 检测是否有本地修改
+        function hasLocalChanges() {
+            if (!_loadedDataSnapshot) return false;
+            var currentSnapshot = JSON.stringify({ schedule: _dataCache || [], settings: _settingsCache || {} });
+            return currentSnapshot !== _loadedDataSnapshot;
+        }
+
         // 显示更新提示
         function showUpdateBanner(author, message) {
             var banner = document.getElementById('updateBanner');
             var msgEl = document.getElementById('updateMessage');
+            var saveLocalBtn = banner ? banner.querySelector('.btn-success') : null;
 
             if (banner && msgEl) {
                 msgEl.innerHTML = '<b>' + author + '</b> 更新了配置：' + message.split('\n')[0];
-                banner.style.display = 'flex';
+
+                // 如果有本地修改，显示"保存本地版本"按钮，否则隐藏
+                if (saveLocalBtn) {
+                    saveLocalBtn.style.display = hasLocalChanges() ? 'inline-block' : 'none';
+                }
+
+                banner.style.display = 'block';
+            }
+        }
+
+        // 处理使用云端版本
+        async function handleUseCloudVersion() {
+            if (!confirm('确定放弃本地修改，使用云端最新配置？')) return;
+
+            var banner = document.getElementById('updateBanner');
+            banner.style.display = 'none';
+
+            try {
+                await loadFromGitHub();
+                tlShowToast('✅ 已加载云端最新配置', 'success');
+            } catch (e) {
+                tlShowToast('❌ 加载失败: ' + e.message, 'error');
+            }
+        }
+
+        // 处理保存本地版本
+        async function handleSaveLocalVersion() {
+            if (!confirm('确定将本地配置保存到云端？这将覆盖云端的最新版本。')) return;
+
+            var banner = document.getElementById('updateBanner');
+            banner.style.display = 'none';
+
+            try {
+                await saveToGitHub();
+            } catch (e) {
+                tlShowToast('❌ 保存失败: ' + e.message, 'error');
             }
         }
 
@@ -1404,6 +1499,9 @@
 
                 _dataCache = schedule;
                 _settingsCache = settings;
+
+                // 保存数据快照用于检测本地修改
+                _loadedDataSnapshot = JSON.stringify({ schedule: schedule, settings: settings });
 
                 console.log('加载 schedule.csv:', schedule.length, '条配置');
                 console.log('加载 settings.json:', settings);
