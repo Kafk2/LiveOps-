@@ -881,6 +881,8 @@
                             <!-- 胶囊滑块: 控制时间轴缩放级别 (Hours/Days/Weeks) -->
                             <button class="btn-today" onclick="scrollToToday()" title="跳转到今天">📅</button>
                             <button class="btn-today" onclick="sweepFirstPeriod()" title="首期扫光">🔴</button>
+                            <button class="btn-today" onclick="undo()" title="撤销 (Ctrl+Z)">↩️</button>
+                            <button class="btn-today" onclick="redo()" title="重做 (Ctrl+Y)">↪️</button>
                             <div class="zoom-ruler-wrap">
                                 <div class="zoom-ruler" id="zoomRuler"><div class="ruler-tick long" style="left:8px;height:10px;"></div><div class="ruler-tick short" style="left:16px;height:8px;"></div><div class="ruler-tick short" style="left:24px;height:8px;"></div><div class="ruler-tick short" style="left:32px;height:8px;"></div><span class="ruler-label" style="left:32px;">Hours</span><div class="ruler-tick short" style="left:40px;height:8px;"></div><div class="ruler-tick long" style="left:48px;height:10px;"></div><div class="ruler-tick short" style="left:56px;height:8px;"></div><div class="ruler-tick short" style="left:64px;height:8px;"></div><div class="ruler-tick short" style="left:72px;height:8px;"></div><div class="ruler-tick short" style="left:80px;height:8px;"></div><div class="ruler-tick long" style="left:88px;height:10px;"></div><span class="ruler-label" style="left:88px;">Days</span><div class="ruler-tick short" style="left:96px;height:8px;"></div><div class="ruler-tick short" style="left:104px;height:8px;"></div><div class="ruler-tick short" style="left:112px;height:8px;"></div><div class="ruler-tick short" style="left:120px;height:8px;"></div><div class="ruler-tick long" style="left:128px;height:10px;"></div><div class="ruler-tick short" style="left:136px;height:8px;"></div><div class="ruler-tick short" style="left:144px;height:8px;"></div><span class="ruler-label" style="left:144px;">Weeks</span><div class="ruler-tick short" style="left:152px;height:8px;"></div><div class="ruler-tick short" style="left:160px;height:8px;"></div><div class="ruler-tick long" style="left:168px;height:10px;"></div><div class="zoom-indicator" id="zoomIndicator" style="left: 63.3333px;"></div></div>
                             </div>
@@ -985,6 +987,11 @@
         var _dataCache = null;
         var _settingsCache = null;
 
+        // 撤销/重做栈
+        var _undoStack = [];
+        var _redoStack = [];
+        var _maxUndoDepth = 20;
+
         // ========== @section GITHUB_SYNC ==========
 
         // GitHub 配置
@@ -1002,6 +1009,69 @@
         var _checkInterval = null;
         var _isFirstCheck = true; // 标记是否是首次检测
         var _loadedDataSnapshot = null; // 加载时的数据快照，用于检测本地修改
+
+        // ========== @section UNDO_REDO ==========
+
+        // 保存快照到撤销栈
+        function saveSnapshot() {
+            var snapshot = {
+                configs: JSON.parse(JSON.stringify(getConfigs())),
+                currentConfigId: currentConfig ? currentConfig.id : null
+            };
+            _undoStack.push(snapshot);
+            if (_undoStack.length > _maxUndoDepth) {
+                _undoStack.shift();
+            }
+            _redoStack = [];
+        }
+
+        // 撤销操作
+        function undo() {
+            if (_undoStack.length === 0) {
+                tlShowToast('没有可撤销的操作', 'warning');
+                return;
+            }
+            var currentSnapshot = {
+                configs: JSON.parse(JSON.stringify(getConfigs())),
+                currentConfigId: currentConfig ? currentConfig.id : null
+            };
+            _redoStack.push(currentSnapshot);
+
+            var snapshot = _undoStack.pop();
+            saveConfigs(snapshot.configs);
+            currentConfig = snapshot.currentConfigId
+                ? snapshot.configs.find(function(c) { return c.id === snapshot.currentConfigId; })
+                : null;
+
+            renderConfigList();
+            renderConfigForm();
+            tlTimelineRowsDirty = true;
+            tlShowToast('已撤销', 'success');
+        }
+
+        // 重做操作
+        function redo() {
+            if (_redoStack.length === 0) {
+                tlShowToast('没有可重做的操作', 'warning');
+                return;
+            }
+            var currentSnapshot = {
+                configs: JSON.parse(JSON.stringify(getConfigs())),
+                currentConfigId: currentConfig ? currentConfig.id : null
+            };
+            _undoStack.push(currentSnapshot);
+
+            var snapshot = _redoStack.pop();
+            saveConfigs(snapshot.configs);
+            currentConfig = snapshot.currentConfigId
+                ? snapshot.configs.find(function(c) { return c.id === snapshot.currentConfigId; })
+                : null;
+
+            renderConfigList();
+            renderConfigForm();
+            tlTimelineRowsDirty = true;
+            tlShowToast('已重做', 'success');
+        }
 
         // 检查 GitHub 配置是否完整
         function isGitHubConfigured() {
@@ -1726,6 +1796,23 @@
                 renderConfigList();
                 renderConfigForm(); // 初始化时显示空状态
                 switchTab('timeline');
+
+                // 添加键盘快捷键监听
+                document.addEventListener('keydown', function(e) {
+                    if (e.ctrlKey || e.metaKey) {
+                        var key = e.key.toLowerCase();
+                        console.log('按键:', key, '撤销栈长度:', _undoStack.length);
+                        if (key === 'z') {
+                            e.preventDefault();
+                            console.log('执行撤销');
+                            undo();
+                        } else if (key === 'y') {
+                            e.preventDefault();
+                            console.log('执行重做');
+                            redo();
+                        }
+                    }
+                });
 
                 // 开始检测 GitHub 更新
                 startUpdateCheck();
@@ -3582,6 +3669,7 @@
 
         function saveConfig() {
             if (!currentConfig) return;
+            saveSnapshot(); // 保存快照以支持撤销
             var keyVal = document.getElementById('activityKey').value.trim();
             if (!keyVal) {
                 alert('活动Key不能为空，请填写后再保存');
@@ -3645,6 +3733,7 @@
         function deleteConfig() {
             if (!currentConfig) return;
             if (confirm('确定要删除此配置吗？')) {
+                saveSnapshot(); // 保存快照以支持撤销
                 var deletedType = currentConfig.activityType || 'default';
                 var deletedId = currentConfig.id;
                 let configs = getConfigs();
@@ -3665,6 +3754,7 @@
 
         function copyConfig() {
             if (!currentConfig) return;
+            saveSnapshot(); // 保存快照以支持撤销
 
             // 生成新的配置ID
             const newId = Date.now().toString();
