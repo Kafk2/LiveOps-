@@ -2260,6 +2260,34 @@
 
                 tlShowToast('✅ 已删除版本文件 ' + scheduleFileName, 'success');
 
+                // 检查被删除的版本是否是最新版本（latest.json 指向的版本）
+                try {
+                    var latestFile = await getGitHubFile('latest.json');
+                    var latestData = JSON.parse(decodeBase64(latestFile.content));
+                    if (latestData.scheduleFile === scheduleFileName) {
+                        // 被删除的版本是 latest.json 指向的版本，需要更新指针
+                        var remainingFiles = await fetchVersionFilesFromGitHub(versionDir);
+                        if (remainingFiles.length > 0) {
+                            var newLatest = remainingFiles[0];
+                            var newLatestContent = JSON.stringify({
+                                version: newLatest.version,
+                                path: versionDir,
+                                scheduleFile: newLatest.name,
+                                timestamp: newLatest.timestamp,
+                                updateTime: new Date().toLocaleString('zh-CN')
+                            }, null, 2);
+                            await uploadToGitHub('latest.json', newLatestContent, latestFile.sha,
+                                '更新 latest.json 指针: 已删除 ' + scheduleFileName + '，最新为 ' + newLatest.version);
+                            tlShowToast('✅ latest.json 已更新指向 ' + newLatest.version, 'success');
+                            updateVersionDisplay(newLatest.version);
+                        } else {
+                            tlShowToast('⚠️ 该版本目录已空, latest.json 指针未更新', 'warning');
+                        }
+                    }
+                } catch (e) {
+                    console.error('检查/更新 latest.json 失败:', e);
+                }
+
                 // 延迟刷新版本列表，确保 GitHub 缓存更新
                 setTimeout(function() {
                     refreshVersionList();
