@@ -794,7 +794,7 @@
                         </div>
                         <div id="dataLoadHint" style="display: none; padding: 10px 15px; margin-bottom: 10px; background: #fff7e6; border: 1px solid #ffd591; border-radius: 4px; color: #ad6800; font-size: 13px;"></div>
                         <div style="display: flex; gap: 10px;">
-                            <input type="text" id="searchInput" placeholder="搜索活动名称或Key..." style="flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" oninput="renderConfigList()">
+                            <input type="text" id="searchInput" placeholder="搜索活动名称或Key..." style="flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" oninput="_debouncedRender()">
                             <select id="sortSelect" onchange="renderConfigList(); tlTimelineRowsDirty=true;" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
                                 <option value="custom">自定义排序</option>
                                 <option value="duration">按持续时间排序</option>
@@ -1298,6 +1298,8 @@
                 _dataCache = schedule;
                 _settingsCache = settings;
                 _loadedDataSnapshot = JSON.stringify({ schedule: schedule, settings: settings });
+                buildActivityMetaMap();
+                markConfigsDirty();
 
                 if (latestData && latestData.version) {
                     localStorage.setItem('currentVersion', latestData.version);
@@ -1829,6 +1831,8 @@
 
                 // 保存数据快照用于检测本地修改
                 _loadedDataSnapshot = JSON.stringify({ schedule: schedule, settings: settings });
+                buildActivityMetaMap();
+                markConfigsDirty();
 
                 if (loadedVersion) {
                     localStorage.setItem('currentVersion', loadedVersion);
@@ -1893,18 +1897,39 @@
             };
         }
 
-        // 获取活动元数据（名称、类型、描述）
-        function getActivityMeta(activityKey) {
-            if (!_settingsCache || !_settingsCache.activityMeta) return null;
-            return _settingsCache.activityMeta.find(function(m) {
-                return m.activityKey === activityKey;
+        // 获取活动元数据（名称、类型、描述）— 使用 Map 缓存
+        var _activityMetaMap = null;
+        function buildActivityMetaMap() {
+            _activityMetaMap = {};
+            if (!_settingsCache || !_settingsCache.activityMeta) return;
+            _settingsCache.activityMeta.forEach(function(m) {
+                _activityMetaMap[m.activityKey] = m;
             });
         }
+        function getActivityMeta(activityKey) {
+            if (!_activityMetaMap) buildActivityMetaMap();
+            return _activityMetaMap[activityKey] || null;
+        }
 
-        // 获取配置列表
+        // 获取配置列表（带缓存）
+        var _configsCache = null;
+        var _configsCacheDirty = true;
+        function markConfigsDirty() {
+            _configsCacheDirty = true;
+            _configsCache = null;
+            invalidateScheduleCache();
+            // 清除渲染缓存
+            _lastTickLevel = null;
+            _lastTickRangeKey = null;
+            _lastGridKey = null;
+            _lastHeatmapKey = null;
+        }
         function getConfigs() {
+            if (!_configsCacheDirty && _configsCache) {
+                return _configsCache;
+            }
             if (!_dataCache) return [];
-            return _dataCache.map(function(row) {
+            _configsCache = _dataCache.map(function(row) {
                 var meta = getActivityMeta(row.activityKey) || {};
                 var barColor = _settingsCache && _settingsCache.uiSettings && _settingsCache.uiSettings.barColors
                     ? _settingsCache.uiSettings.barColors[row.id] : null;
@@ -1928,6 +1953,8 @@
                     barColor: barColor
                 };
             });
+            _configsCacheDirty = false;
+            return _configsCache;
         }
 
         // 保存配置列表
@@ -1961,9 +1988,8 @@
             });
 
             console.log('saveConfigs - 已缓存', _dataCache.length, '条配置');
+            markConfigsDirty();
         }
-
-        // 获取依赖关系
         function getDependencies() {
             if (!_settingsCache) return [];
             return _settingsCache.dependencies || [];
@@ -2349,6 +2375,8 @@
                 // 更新缓存
                 _dataCache = parseCSV(csvContent);
                 _settingsCache = JSON.parse(jsonContent);
+                buildActivityMetaMap();
+                markConfigsDirty();
 
                 // 更新本地版本号
                 localStorage.setItem('currentVersion', version);
@@ -2510,8 +2538,10 @@
             document.getElementById('tab-' + tabName).classList.add('active');
 
             if (tabName === 'dependency') {
+                stopBarberAnimation();
                 renderDependencyList();
             } else if (tabName === 'mutex') {
+                stopBarberAnimation();
                 renderMutexGroupList();
             } else if (tabName === 'timeline') {
                 var wasInit = !tlInitialized;
@@ -2522,9 +2552,12 @@
                 } else {
                     tlRender();
                 }
+                startBarberAnimation();
             } else if (tabName === 'compare') {
+                stopBarberAnimation();
                 populateCompareSelects();
             } else if (tabName === 'config') {
+                stopBarberAnimation();
                 // 重新加载配置列表（从localStorage读取最新数据）
                 renderConfigList();
 
@@ -2551,6 +2584,13 @@
         // ========== @section CONFIG_LIST ==========
 
         let currentConfig = null;
+
+        // 搜索输入防抖
+        var _searchDebounceId = null;
+        function _debouncedRender() {
+            clearTimeout(_searchDebounceId);
+            _searchDebounceId = setTimeout(renderConfigList, 150);
+        }
 
         function renderConfigList() {
             const listEl = document.getElementById('configList');
@@ -2791,7 +2831,9 @@
         }
 
         // 获取活动类型的排序顺序
+        var _typeOrderCache = null;
         function getTypeOrder() {
+            if (_typeOrderCache) return _typeOrderCache;
             let order = localStorage.getItem('activityTypeOrder');
             if (!order) {
                 // 默认顺序
@@ -2802,22 +2844,28 @@
             if (!arr.includes('default')) {
                 arr.unshift('default');
             }
+            _typeOrderCache = arr;
             return arr;
         }
 
         // 保存活动类型的排序顺序
         function saveTypeOrder(order) {
             localStorage.setItem('activityTypeOrder', JSON.stringify(order));
+            _typeOrderCache = null; // 清除缓存
             tlTimelineRowsDirty = true;
         }
 
         // 自定义排序（按类型组分组，值为 config id 数组）
+        var _customOrderCache = null;
         function getCustomOrder() {
-            try { return JSON.parse(localStorage.getItem('customConfigOrder') || '{}'); }
-            catch(e) { return {}; }
+            if (_customOrderCache) return _customOrderCache;
+            try { _customOrderCache = JSON.parse(localStorage.getItem('customConfigOrder') || '{}'); }
+            catch(e) { _customOrderCache = {}; }
+            return _customOrderCache;
         }
         function saveCustomOrder(order) {
             localStorage.setItem('customConfigOrder', JSON.stringify(order));
+            _customOrderCache = null; // 清除缓存
         }
         // 确保 customOrder 中包含指定类型的所有 config id
         function ensureCustomOrder(type, configs) {
@@ -2833,19 +2881,23 @@
             return order;
         }
 
-        // 获取折叠状态
+        // 获取折叠状态（带缓存）
+        var _collapsedStateCache = null;
         function getCollapsedState() {
+            if (_collapsedStateCache) return _collapsedStateCache;
             const state = localStorage.getItem('typeGroupCollapsed');
             if (state) {
-                return JSON.parse(state);
+                _collapsedStateCache = JSON.parse(state);
+            } else {
+                _collapsedStateCache = {};
             }
-            // 默认所有类型组都是展开的
-            return {};
+            return _collapsedStateCache;
         }
 
         // 保存折叠状态
         function saveCollapsedState(state) {
             localStorage.setItem('typeGroupCollapsed', JSON.stringify(state));
+            _collapsedStateCache = null; // 清除缓存
             tlTimelineRowsDirty = true;
         }
 
@@ -3628,8 +3680,22 @@
             return y + '-' + m + '-' + dd;
         }
 
-        // 计算实际配置结果（根据循环规则计算每一期）
+        // 计算实际配置结果（根据循环规则计算每一期）— 带缓存
         // 这个函数返回计算好的时间数组，供配置表和timeline共同使用
+        var _scheduleCache = {};
+        function invalidateScheduleCache() {
+            _scheduleCache = {};
+        }
+        function getCachedSchedules(config) {
+            // 生成缓存 key：包含所有影响结果的字段
+            var cacheKey = config.id + '|' + (config.scheduleStartDate || '') + '|' +
+                           (config.scheduleEndDate || '') + '|' + (config.recurrenceValue || '') + '|' +
+                           (config.startTime || '') + '|' + (config.duration || '');
+            if (!_scheduleCache[cacheKey]) {
+                _scheduleCache[cacheKey] = calculateActualSchedules(config);
+            }
+            return _scheduleCache[cacheKey];
+        }
         function calculateActualSchedules(config) {
             // 如果没有开始日期，返回空数组
             if (!config.scheduleStartDate || config.scheduleStartDate === '') {
@@ -3714,7 +3780,7 @@
             }
 
             // 调用公共计算函数
-            const actualSchedules = calculateActualSchedules(config);
+            const actualSchedules = getCachedSchedules(config);
 
             // 解析循环规则用于显示
             let recurrenceValue = [1];
@@ -4923,22 +4989,32 @@
 
         // ========== @section BAR_COLOR ==========
 
+        // 颜色计算缓存
+        var _colorCache = {};
         function contrastColor(hex) {
+            var key = 'c:' + hex;
+            if (_colorCache[key]) return _colorCache[key];
             var r = parseInt(hex.slice(1,3),16);
             var g = parseInt(hex.slice(3,5),16);
             var b = parseInt(hex.slice(5,7),16);
             var lum = (0.299*r + 0.587*g + 0.114*b) / 255;
-            return lum > 0.55 ? '#000' : '#fff';
+            var result = lum > 0.55 ? '#000' : '#fff';
+            _colorCache[key] = result;
+            return result;
         }
 
         function lightenColor(hex, pct) {
+            var key = 'l:' + hex + ':' + pct;
+            if (_colorCache[key]) return _colorCache[key];
             var r = parseInt(hex.slice(1,3),16);
             var g = parseInt(hex.slice(3,5),16);
             var b = parseInt(hex.slice(5,7),16);
             r = Math.min(255, r + Math.round((255 - r) * pct / 100));
             g = Math.min(255, g + Math.round((255 - g) * pct / 100));
             b = Math.min(255, b + Math.round((255 - b) * pct / 100));
-            return '#' + [r,g,b].map(function(c){return c.toString(16).padStart(2,'0');}).join('');
+            var result = '#' + [r,g,b].map(function(c){return c.toString(16).padStart(2,'0');}).join('');
+            _colorCache[key] = result;
+            return result;
         }
 
         function renderBarColorPicker() {
@@ -5329,7 +5405,7 @@
             var autoMergeMap = {};
             var autoMergeOrder = [];
             validConfigs.forEach(function(config) {
-                var schedules = calculateActualSchedules(config);
+                var schedules = getCachedSchedules(config);
                 if (schedules.length === 0) return;
                 var type = config.activityType || 'gift';
                 var name = config.activityName || config.activityKey || '未命名';
@@ -5689,10 +5765,25 @@
             if (tlDragCenterHour !== null && !tlIsDraggingSlider && !tlIsDraggingTimeline && !tlIsDraggingProgress && !tlIsAnimatingToToday && !tlIsZoomAnimating) tlDragCenterHour = null;
         }
 
+        // Tick bar 缓存：仅在缩放级别或范围变化时重建 DOM
+        var _lastTickLevel = null;
+        var _lastTickRangeKey = null;
+
         function tlRenderTickBar(pxh, level, gridH, rStart, rEnd) {
             var tickH = 64;
             tlTickBar.querySelector('.tick-label-col').style.height = tickH + 'px';
             tlTickArea.style.height = tickH + 'px';
+
+            // 计算缓存 key：级别 + 范围（以 gridH 为单位量化）
+            var rangeKey = level + ':' + Math.floor(rStart / gridH) + '-' + Math.ceil(rEnd / gridH);
+
+            if (_lastTickLevel === level && _lastTickRangeKey === rangeKey) {
+                // 缩放级别和范围未变，跳过重建（pxh 的变化通过 CSS transform 处理）
+                return;
+            }
+            _lastTickLevel = level;
+            _lastTickRangeKey = rangeKey;
+
             var html = '';
             var startSnapped = Math.floor(rStart / gridH) * gridH;
             var drawnDays = {};
@@ -5744,7 +5835,14 @@
             tlNowLineTickEl = nlt;
         }
 
+        // Grid 缓存：仅在网格参数变化时重建
+        var _lastGridKey = null;
+
         function tlRenderGrid(pxh, gridH, rStart, rEnd) {
+            var gridKey = gridH + ':' + Math.floor(rStart / gridH) + '-' + Math.ceil(rEnd / gridH);
+            if (_lastGridKey === gridKey) return;
+            _lastGridKey = gridKey;
+
             var startSnapped = Math.floor(rStart / gridH) * gridH;
             var html = '';
             var dayStart = Math.floor(rStart / 24) * 24;
@@ -5906,14 +6004,21 @@
             hmSaveRules();
         }
 
+        // Heatmap 缓存：范围未变时跳过重建
+        var _lastHeatmapKey = null;
+
         function tlRenderHeatmap(pxh, gridH, rStart, rEnd) {
             if (!tlHeatmapArea) return;
+            var heatmapKey = gridH + ':' + Math.floor(rStart / gridH) + '-' + Math.ceil(rEnd / gridH);
+            if (_lastHeatmapKey === heatmapKey) return;
+            _lastHeatmapKey = heatmapKey;
+
             var configs = getConfigs();
             var allPeriods = [];
             configs.forEach(function(c) {
                 if (!c.enabled && !tlShowStopped) return;
                 if (!c.scheduleStartDate || c.scheduleStartDate === '') return;
-                calculateActualSchedules(c).forEach(function(s) {
+                getCachedSchedules(c).forEach(function(s) {
                     allPeriods.push({ start: s.openTime, end: s.closeTime, name: c.activityName || c.activityKey || '?' });
                 });
             });
@@ -6006,6 +6111,8 @@
                 });
                 re.barsEl.innerHTML = html;
             });
+            // 更新 barber-pole stripe 缓存
+            if (typeof updateBarberStripes === 'function') updateBarberStripes();
             tlRestoreBarSelection();
         }
 
@@ -6204,7 +6311,7 @@
             var configs = getConfigs();
             var config = configs.find(function(c) { return c.id === configId; });
             if (!config || !config.scheduleStartDate) return [];
-            var schedules = calculateActualSchedules(config);
+            var schedules = getCachedSchedules(config);
             return schedules.map(function(s) {
                 return { start: s.openTime.getTime(), end: s.closeTime.getTime() };
             });
@@ -6646,15 +6753,46 @@
                 }
             });
 
-            // Barber-pole animation: global rAF driver
-            (function barberLoop() {
-                var off = performance.now() / 2000 * 12 % 12;
-                var stripes = document.querySelectorAll('.bar-stripe');
-                for (var i = 0; i < stripes.length; i++) {
-                    stripes[i].style.backgroundPosition = off + 'px 0';
+            // Barber-pole animation: 按需启停，缓存 stripe 元素引用
+            var _barberStripes = [];
+            var _barberRafId = null;
+            var _barberRunning = false;
+
+            function updateBarberStripes() {
+                _barberStripes = Array.from(document.querySelectorAll('.bar-stripe'));
+            }
+
+            function startBarberAnimation() {
+                if (_barberRunning) return;
+                _barberRunning = true;
+                updateBarberStripes();
+                function barberLoop() {
+                    if (!_barberRunning) return;
+                    var off = performance.now() / 2000 * 12 % 12;
+                    for (var i = 0; i < _barberStripes.length; i++) {
+                        _barberStripes[i].style.backgroundPosition = off + 'px 0';
+                    }
+                    _barberRafId = requestAnimationFrame(barberLoop);
                 }
-                requestAnimationFrame(barberLoop);
-            })();
+                barberLoop();
+            }
+
+            function stopBarberAnimation() {
+                _barberRunning = false;
+                if (_barberRafId) {
+                    cancelAnimationFrame(_barberRafId);
+                    _barberRafId = null;
+                }
+            }
+
+            // 页面可见性 API：浏览器 tab 隐藏时暂停
+            document.addEventListener('visibilitychange', function() {
+                if (document.hidden) {
+                    stopBarberAnimation();
+                } else if (document.querySelector('#tab-timeline.active')) {
+                    startBarberAnimation();
+                }
+            });
 
             // Heatmap tooltip
             document.addEventListener('mousemove', function(e) {
@@ -7203,6 +7341,10 @@
                             }
                         }
                     });
+
+                    // 更新缓存和元数据
+                    buildActivityMetaMap();
+                    markConfigsDirty();
 
                     // 更新 UI 设置到 localStorage
                     if (_settingsCache && _settingsCache.uiSettings) {
