@@ -1925,6 +1925,7 @@
             _lastTickRangeKey = null;
             _lastGridKey = null;
             _lastHeatmapKey = null;
+            _barDataDirty = true;
         }
         function getConfigs() {
             if (!_configsCacheDirty && _configsCache) {
@@ -5585,6 +5586,7 @@
                 });
             });
             tlTimelineRowsDirty = false;
+            _barDataDirty = true;
         }
 
         function tlRenderNormalRow(parent, r, type, isHidden) {
@@ -6239,9 +6241,42 @@
             }
         }
 
+        // Bars: 增量更新，拖动时仅更新位置
+        var _barDataDirty = true; // 数据变更时需要重建
+
         function tlRenderBars(pxh, rStart, rEnd) {
             var now = Date.now();
             var sl = tlScrollEl.scrollLeft;
+
+            if (!_barDataDirty) {
+                // 快速路径：只更新已有 bar 的位置
+                tlRowElements.forEach(function(re) {
+                    var bars = re.barsEl.querySelectorAll('.bar');
+                    re.row.periods.forEach(function(p, i) {
+                        var sH = (p.start - TL_TIME_ORIGIN) / 3600000;
+                        var eH = (p.end - TL_TIME_ORIGIN) / 3600000;
+                        if (eH < rStart || sH > rEnd) {
+                            if (bars[i]) bars[i].style.display = 'none';
+                            return;
+                        }
+                        if (!bars[i]) return;
+                        var rawLeft = (sH - tlLoadedStartH) * pxh;
+                        var rawWidth = (eH - sH) * pxh;
+                        bars[i].style.left = Math.max(0, rawLeft) + 'px';
+                        bars[i].style.width = Math.max(20, rawWidth - Math.max(0, -rawLeft)) + 'px';
+                        bars[i].style.display = '';
+                        // Update active class
+                        var isActive = now >= p.start.getTime() && now <= p.end.getTime();
+                        if (isActive && !bars[i].classList.contains('bar-active')) bars[i].classList.add('bar-active');
+                        if (!isActive && bars[i].classList.contains('bar-active')) bars[i].classList.remove('bar-active');
+                    });
+                });
+                tlRestoreBarSelection();
+                return;
+            }
+
+            // 慢速路径：数据变更时重建所有 bar
+            _barDataDirty = false;
             tlRowElements.forEach(function(re) {
                 var html = '';
                 re.row.periods.forEach(function(p) {
@@ -6934,18 +6969,7 @@
 
             // Barber-pole animation: 已移至全局作用域
 
-            // Heatmap tooltip
-            document.addEventListener('mousemove', function(e) {
-                var cell = e.target.closest && e.target.closest('.heatmap-cell');
-                if (cell) {
-                    tlHeatmapTooltip.textContent = cell.getAttribute('data-tip');
-                    tlHeatmapTooltip.style.display = 'block';
-                    tlHeatmapTooltip.style.left = (e.clientX + 12) + 'px';
-                    tlHeatmapTooltip.style.top = (e.clientY - 40) + 'px';
-                } else {
-                    tlHeatmapTooltip.style.display = 'none';
-                }
-            });
+            // Heatmap tooltip: 已移至 Canvas tlRenderHeatmap 内处理
 
             // Heatmap config popup: click on heatmap-bar (not on cells) to open
             document.getElementById('heatmapBar').addEventListener('click', function(e) {
