@@ -2552,7 +2552,8 @@
                 } else {
                     tlRender();
                 }
-                startBarberAnimation();
+                // 延迟启动动画，确保 DOM 已渲染
+                requestAnimationFrame(function() { startBarberAnimation(); });
             } else if (tabName === 'compare') {
                 stopBarberAnimation();
                 populateCompareSelects();
@@ -5216,8 +5217,15 @@
             if (_barberRunning) return;
             _barberRunning = true;
             updateBarberStripes();
+            var _lastStripeCount = _barberStripes.length;
             function barberLoop() {
                 if (!_barberRunning) return;
+                // 检测 DOM 中 stripe 数量变化时刷新缓存
+                var curCount = document.querySelectorAll('.bar-stripe').length;
+                if (curCount !== _lastStripeCount) {
+                    updateBarberStripes();
+                    _lastStripeCount = _barberStripes.length;
+                }
                 var off = performance.now() / 2000 * 12 % 12;
                 for (var i = 0; i < _barberStripes.length; i++) {
                     _barberStripes[i].style.backgroundPosition = off + 'px 0';
