@@ -5202,6 +5202,47 @@
         var tlInitialized = false;
         var tlTimelineRowsDirty = true;
         var tlShowStopped = false;
+
+        // Barber-pole animation: 按需启停，缓存 stripe 元素引用
+        var _barberStripes = [];
+        var _barberRafId = null;
+        var _barberRunning = false;
+
+        function updateBarberStripes() {
+            _barberStripes = Array.from(document.querySelectorAll('.bar-stripe'));
+        }
+
+        function startBarberAnimation() {
+            if (_barberRunning) return;
+            _barberRunning = true;
+            updateBarberStripes();
+            function barberLoop() {
+                if (!_barberRunning) return;
+                var off = performance.now() / 2000 * 12 % 12;
+                for (var i = 0; i < _barberStripes.length; i++) {
+                    _barberStripes[i].style.backgroundPosition = off + 'px 0';
+                }
+                _barberRafId = requestAnimationFrame(barberLoop);
+            }
+            barberLoop();
+        }
+
+        function stopBarberAnimation() {
+            _barberRunning = false;
+            if (_barberRafId) {
+                cancelAnimationFrame(_barberRafId);
+                _barberRafId = null;
+            }
+        }
+
+        // 页面可见性 API：浏览器 tab 隐藏时暂停
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                stopBarberAnimation();
+            } else if (document.querySelector('#tab-timeline.active')) {
+                startBarberAnimation();
+            }
+        });
         var tlProgressOffset = 0;
         var tlIsDraggingProgress = false;
         var tlProgressDragStartX = 0;
@@ -6136,7 +6177,7 @@
             return tlIsDraggingSlider || tlIsDraggingTimeline || tlIsDraggingProgress || tlIsAnimatingToToday;
         }
         function tlShowTip(e, name, start, end, skin) {
-            if (tlIsInteracting()) return;
+            if (!tlTooltipEl || tlIsInteracting()) return;
             var html = '<strong>'+name+'</strong><br>开始：'+start+'<br>结束：'+end;
             if (skin && skin !== 'default') html += '<br>皮肤：'+skin;
             tlTooltipEl.innerHTML = html;
@@ -6144,10 +6185,11 @@
             tlMoveTip(e);
         }
         function tlMoveTip(e) {
+            if (!tlTooltipEl) return;
             tlTooltipEl.style.left = (e.clientX + 12) + 'px';
             tlTooltipEl.style.top = (e.clientY + 12) + 'px';
         }
-        function tlHideTip() { tlTooltipEl.style.display = 'none'; }
+        function tlHideTip() { if (tlTooltipEl) tlTooltipEl.style.display = 'none'; }
 
         function tlSelectBar(el, configId) {
             // Remove previous selection
@@ -6753,46 +6795,7 @@
                 }
             });
 
-            // Barber-pole animation: 按需启停，缓存 stripe 元素引用
-            var _barberStripes = [];
-            var _barberRafId = null;
-            var _barberRunning = false;
-
-            function updateBarberStripes() {
-                _barberStripes = Array.from(document.querySelectorAll('.bar-stripe'));
-            }
-
-            function startBarberAnimation() {
-                if (_barberRunning) return;
-                _barberRunning = true;
-                updateBarberStripes();
-                function barberLoop() {
-                    if (!_barberRunning) return;
-                    var off = performance.now() / 2000 * 12 % 12;
-                    for (var i = 0; i < _barberStripes.length; i++) {
-                        _barberStripes[i].style.backgroundPosition = off + 'px 0';
-                    }
-                    _barberRafId = requestAnimationFrame(barberLoop);
-                }
-                barberLoop();
-            }
-
-            function stopBarberAnimation() {
-                _barberRunning = false;
-                if (_barberRafId) {
-                    cancelAnimationFrame(_barberRafId);
-                    _barberRafId = null;
-                }
-            }
-
-            // 页面可见性 API：浏览器 tab 隐藏时暂停
-            document.addEventListener('visibilitychange', function() {
-                if (document.hidden) {
-                    stopBarberAnimation();
-                } else if (document.querySelector('#tab-timeline.active')) {
-                    startBarberAnimation();
-                }
-            });
+            // Barber-pole animation: 已移至全局作用域
 
             // Heatmap tooltip
             document.addEventListener('mousemove', function(e) {
