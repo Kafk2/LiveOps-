@@ -6249,32 +6249,51 @@
             var sl = tlScrollEl.scrollLeft;
 
             if (!_barDataDirty) {
-                // 快速路径：只更新已有 bar 的 left/width
-                tlRowElements.forEach(function(re) {
-                    var bars = re.barsEl.children;
-                    for (var i = 0; i < bars.length; i++) {
-                        var bar = bars[i];
-                        if (!bar.dataset || !bar.dataset.sh) continue;
-                        var sH = parseFloat(bar.dataset.sh);
-                        var eH = parseFloat(bar.dataset.eh);
-                        if (eH < rStart || sH > rEnd) {
-                            bar.style.display = 'none';
-                            continue;
-                        }
-                        var rawLeft = (sH - tlLoadedStartH) * pxh;
-                        var rawWidth = (eH - sH) * pxh;
-                        bar.style.left = Math.max(0, rawLeft) + 'px';
-                        bar.style.width = Math.max(20, rawWidth - Math.max(0, -rawLeft)) + 'px';
-                        bar.style.display = '';
-                        // Update active class
-                        var startMs = TL_TIME_ORIGIN.getTime() + sH * 3600000;
-                        var endMs = TL_TIME_ORIGIN.getTime() + eH * 3600000;
-                        var isActive = now >= startMs && now <= endMs;
-                        bar.classList.toggle('bar-active', isActive);
+                // 快速路径：检查是否所有可见 period 都已在 DOM 中
+                var needRebuild = false;
+                for (var ri = 0; ri < tlRowElements.length; ri++) {
+                    var _re = tlRowElements[ri];
+                    var visiblePeriods = 0;
+                    for (var pi = 0; pi < _re.row.periods.length; pi++) {
+                        var _p = _re.row.periods[pi];
+                        var _psH = (_p.start - TL_TIME_ORIGIN) / 3600000;
+                        var _peH = (_p.end - TL_TIME_ORIGIN) / 3600000;
+                        if (_peH >= rStart && _psH <= rEnd) visiblePeriods++;
                     }
-                });
-                tlRestoreBarSelection();
-                return;
+                    if (visiblePeriods !== _re.barsEl.children.length) {
+                        needRebuild = true;
+                        break;
+                    }
+                }
+
+                if (!needRebuild) {
+                    // 快速路径：只更新已有 bar 的 left/width
+                    tlRowElements.forEach(function(re) {
+                        var bars = re.barsEl.children;
+                        for (var i = 0; i < bars.length; i++) {
+                            var bar = bars[i];
+                            if (!bar.dataset || !bar.dataset.sh) continue;
+                            var sH = parseFloat(bar.dataset.sh);
+                            var eH = parseFloat(bar.dataset.eh);
+                            if (eH < rStart || sH > rEnd) {
+                                bar.style.display = 'none';
+                                continue;
+                            }
+                            var rawLeft = (sH - tlLoadedStartH) * pxh;
+                            var rawWidth = (eH - sH) * pxh;
+                            bar.style.left = Math.max(0, rawLeft) + 'px';
+                            bar.style.width = Math.max(20, rawWidth - Math.max(0, -rawLeft)) + 'px';
+                            bar.style.display = '';
+                            // Update active class
+                            var startMs = TL_TIME_ORIGIN.getTime() + sH * 3600000;
+                            var endMs = TL_TIME_ORIGIN.getTime() + eH * 3600000;
+                            var isActive = now >= startMs && now <= endMs;
+                            bar.classList.toggle('bar-active', isActive);
+                        }
+                    });
+                    tlRestoreBarSelection();
+                    return;
+                }
             }
 
             // 慢速路径：数据变更时重建所有 bar
