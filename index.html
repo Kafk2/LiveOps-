@@ -6219,34 +6219,37 @@
         }
 
         function _drawBarStripe(ctx, x, y, w, h, offset) {
-            // barber-pole diagonal stripes
+            // barber-pole: moving small triangles
             ctx.save();
             ctx.beginPath();
             ctx.rect(x, y, w, h);
             ctx.clip();
-            ctx.globalAlpha = 0.15;
-            var size = 12;
-            var off = offset % (size * 2);
-            ctx.fillStyle = '#000';
-            for (var sx = x - h - size * 2 + off; sx < x + w + size * 2; sx += size * 2) {
-                ctx.beginPath();
-                ctx.moveTo(sx, y + h);
-                ctx.lineTo(sx + size, y + h);
-                ctx.lineTo(sx + size + h, y);
-                ctx.lineTo(sx + h, y);
-                ctx.closePath();
-                ctx.fill();
+            var triW = 8, triH = 6;
+            var spacing = 14;
+            var off = offset % spacing;
+            // dark triangles (▼)
+            ctx.fillStyle = 'rgba(0,0,0,0.13)';
+            for (var col = x - spacing + off; col < x + w + spacing; col += spacing) {
+                for (var row = y; row < y + h; row += triH * 2) {
+                    ctx.beginPath();
+                    ctx.moveTo(col, row);
+                    ctx.lineTo(col + triW, row);
+                    ctx.lineTo(col + triW / 2, row + triH);
+                    ctx.closePath();
+                    ctx.fill();
+                }
             }
-            ctx.globalAlpha = 0.08;
-            ctx.fillStyle = '#fff';
-            for (var sx = x - h + off; sx < x + w + size * 2; sx += size * 2) {
-                ctx.beginPath();
-                ctx.moveTo(sx, y + h);
-                ctx.lineTo(sx + size, y + h);
-                ctx.lineTo(sx + size + h, y);
-                ctx.lineTo(sx + h, y);
-                ctx.closePath();
-                ctx.fill();
+            // light triangles (▲)
+            ctx.fillStyle = 'rgba(255,255,255,0.18)';
+            for (var col = x - spacing + off + triW / 2; col < x + w + spacing; col += spacing) {
+                for (var row = y + triH; row < y + h; row += triH * 2) {
+                    ctx.beginPath();
+                    ctx.moveTo(col, row - triH);
+                    ctx.lineTo(col + triW, row - triH);
+                    ctx.lineTo(col + triW / 2, row);
+                    ctx.closePath();
+                    ctx.fill();
+                }
             }
             ctx.restore();
         }
@@ -7144,7 +7147,21 @@
 
             // Timeline drag/pan
             tlScrollEl.addEventListener('mousedown', function(e) {
-                if (e.target.tagName === 'CANVAS' || e.target.closest('.zoom-ruler')) return;
+                if (e.target.tagName === 'CANVAS') {
+                    // 如果点中了某个 bar，不启动拖拽（让 click 处理）
+                    var rect = e.target.getBoundingClientRect();
+                    var mx = e.clientX - rect.left;
+                    var canvasIdx = _barRowCanvases.indexOf(e.target);
+                    var hitBar = false;
+                    if (canvasIdx >= 0 && _barCellsAll[canvasIdx]) {
+                        for (var i = 0; i < _barCellsAll[canvasIdx].length; i++) {
+                            var c = _barCellsAll[canvasIdx][i];
+                            if (mx >= c.x && mx <= c.x + c.w) { hitBar = true; break; }
+                        }
+                    }
+                    if (hitBar) return;
+                }
+                if (e.target.closest('.zoom-ruler')) return;
                 if (e.target.closest('.t-row-label') || e.target.closest('.t-group-header')) return;
                 tlIsDraggingTimeline = true;
                 tlDragStartX = e.pageX;
