@@ -7509,6 +7509,133 @@
         }
 
 
+        // ========== @section PERF ==========
+
+        var _perf = {
+            active: false,
+            hud: null,
+            fpsFrames: 0,
+            fpsLastTs: 0,
+            fpsValue: 0,
+            lastRenderMs: 0,
+            _origTlRender: null,
+            testRunning: false,
+            testRenderMs: [],
+            testStartTime: 0
+        };
+
+        // Wrap tlRender to measure duration
+        (function() {
+            _perf._origTlRender = tlRender;
+            tlRender = function() {
+                var t0 = performance.now();
+                _perf._origTlRender();
+                var dt = performance.now() - t0;
+                _perf.lastRenderMs = dt;
+                if (_perf.active) _perf.fpsFrames++;
+                if (_perf.testRunning) _perf.testRenderMs.push(dt);
+            };
+        })();
+
+        function _perfFpsLoop(ts) {
+            if (!_perf.active) return;
+            if (_perf.fpsLastTs && ts - _perf.fpsLastTs >= 500) {
+                _perf.fpsValue = Math.round(_perf.fpsFrames / ((ts - _perf.fpsLastTs) / 1000));
+                _perf.fpsFrames = 0;
+                _perf.fpsLastTs = ts;
+                _perfUpdateHud();
+            }
+            if (!_perf.fpsLastTs) _perf.fpsLastTs = ts;
+            requestAnimationFrame(_perfFpsLoop);
+        }
+
+        function _perfCreateHud() {
+            if (_perf.hud) return;
+            _perf.hud = document.createElement('div');
+            _perf.hud.style.cssText =
+                'position:fixed;bottom:12px;right:12px;background:rgba(0,0,0,0.78);' +
+                'color:#0f0;font:11px/1.5 monospace;padding:5px 9px;border-radius:4px;' +
+                'z-index:99999;pointer-events:none;text-align:right;';
+            document.body.appendChild(_perf.hud);
+        }
+
+        function _perfUpdateHud() {
+            if (!_perf.hud) return;
+            _perf.hud.innerHTML =
+                'FPS: ' + _perf.fpsValue +
+                ' | render: ' + _perf.lastRenderMs.toFixed(1) + 'ms' +
+                ' | DOM: ' + document.querySelectorAll('*').length;
+        }
+
+        window.perfStart = function() {
+            if (_perf.active) return;
+            _perf.active = true;
+            _perf.fpsFrames = 0;
+            _perf.fpsLastTs = 0;
+            _perfCreateHud();
+            requestAnimationFrame(_perfFpsLoop);
+            console.log('[perf] HUD started — call perfTest() for stress test, perfStop() to close');
+        };
+
+        window.perfStop = function() {
+            _perf.active = false;
+            _perf.testRunning = false;
+            if (_perf.hud) { _perf.hud.remove(); _perf.hud = null; }
+            console.log('[perf] HUD stopped');
+        };
+
+        window.perfTest = function() {
+            if (!_perf.active) window.perfStart();
+            switchTab('timeline');
+
+            setTimeout(function() {
+                // Max zoom: tlSliderPos=0 → node=1, pxh=40
+                tlSliderPos = 0;
+                tlUpdateSliderUI();
+                tlRender();
+
+                _perf.testRunning = true;
+                _perf.testRenderMs = [];
+                _perf.testStartTime = performance.now();
+
+                var el = tlScrollEl;
+                var maxSl = el.scrollWidth - el.clientWidth;
+                var dir = 1;
+                var spd = 8;
+                var dur = 3000;
+
+                function step() {
+                    if (!_perf.testRunning) return;
+                    if (performance.now() - _perf.testStartTime >= dur) {
+                        _perf.testRunning = false;
+                        var n = _perf.testRenderMs.length;
+                        var min = n ? Math.min.apply(null, _perf.testRenderMs) : 0;
+                        var max = n ? Math.max.apply(null, _perf.testRenderMs) : 0;
+                        var avg = n ? (_perf.testRenderMs.reduce(function(a, b) { return a + b; }, 0) / n) : 0;
+                        var fps = n / (dur / 1000);
+                        var report =
+                            '=== perfTest results ===\n' +
+                            'FPS: ' + fps.toFixed(1) + '\n' +
+                            'Renders: ' + n + '\n' +
+                            'Render time — min: ' + min.toFixed(1) + 'ms, max: ' + max.toFixed(1) + 'ms, avg: ' + avg.toFixed(1) + 'ms\n' +
+                            'DOM nodes: ' + document.querySelectorAll('*').length;
+                        console.log(report);
+                        alert(report);
+                        tlSliderPos = 0.5;
+                        tlUpdateSliderUI();
+                        tlRender();
+                        return;
+                    }
+                    var sl = el.scrollLeft;
+                    if (sl >= maxSl - 10) dir = -1;
+                    if (sl <= 10) dir = 1;
+                    el.scrollLeft = sl + spd * dir;
+                    requestAnimationFrame(step);
+                }
+                requestAnimationFrame(step);
+            }, 200);
+        };
+
         // ========== @section INIT ==========
 
         initData();
