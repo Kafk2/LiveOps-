@@ -6249,27 +6249,29 @@
             var sl = tlScrollEl.scrollLeft;
 
             if (!_barDataDirty) {
-                // 快速路径：只更新已有 bar 的位置
+                // 快速路径：只更新已有 bar 的 left/width
                 tlRowElements.forEach(function(re) {
-                    var bars = re.barsEl.querySelectorAll('.bar');
-                    re.row.periods.forEach(function(p, i) {
-                        var sH = (p.start - TL_TIME_ORIGIN) / 3600000;
-                        var eH = (p.end - TL_TIME_ORIGIN) / 3600000;
+                    var bars = re.barsEl.children;
+                    for (var i = 0; i < bars.length; i++) {
+                        var bar = bars[i];
+                        if (!bar.dataset || !bar.dataset.sh) continue;
+                        var sH = parseFloat(bar.dataset.sh);
+                        var eH = parseFloat(bar.dataset.eh);
                         if (eH < rStart || sH > rEnd) {
-                            if (bars[i]) bars[i].style.display = 'none';
-                            return;
+                            bar.style.display = 'none';
+                            continue;
                         }
-                        if (!bars[i]) return;
                         var rawLeft = (sH - tlLoadedStartH) * pxh;
                         var rawWidth = (eH - sH) * pxh;
-                        bars[i].style.left = Math.max(0, rawLeft) + 'px';
-                        bars[i].style.width = Math.max(20, rawWidth - Math.max(0, -rawLeft)) + 'px';
-                        bars[i].style.display = '';
+                        bar.style.left = Math.max(0, rawLeft) + 'px';
+                        bar.style.width = Math.max(20, rawWidth - Math.max(0, -rawLeft)) + 'px';
+                        bar.style.display = '';
                         // Update active class
-                        var isActive = now >= p.start.getTime() && now <= p.end.getTime();
-                        if (isActive && !bars[i].classList.contains('bar-active')) bars[i].classList.add('bar-active');
-                        if (!isActive && bars[i].classList.contains('bar-active')) bars[i].classList.remove('bar-active');
-                    });
+                        var startMs = TL_TIME_ORIGIN.getTime() + sH * 3600000;
+                        var endMs = TL_TIME_ORIGIN.getTime() + eH * 3600000;
+                        var isActive = now >= startMs && now <= endMs;
+                        bar.classList.toggle('bar-active', isActive);
+                    }
                 });
                 tlRestoreBarSelection();
                 return;
@@ -6315,7 +6317,7 @@
                     }
                     var _bpOff = performance.now() / 2000 * 12 % 12;
                     var activeOverlay = (cls.indexOf('bar-active') >= 0) ? '<div class="bar-stripe" style="background-position:'+_bpOff+'px 0"></div>' : '';
-                    html += '<div class="'+cls+'" data-period="'+p.period+'" style="left:'+left+'px;width:'+width+'px;'+bgStyle+'color:'+textColor+';"'
+                    html += '<div class="'+cls+'" data-period="'+p.period+'" data-sh="'+sH+'" data-eh="'+eH+'" style="left:'+left+'px;width:'+width+'px;'+bgStyle+'color:'+textColor+';"'
                         + ' onmouseenter="tlShowTip(event,\''+escapeHtml(pName)+'\',\''+tlFmtDT(p.start)+'\',\''+tlFmtDT(p.end)+'\',\''+escapeHtml(p.skin||'')+'\')"'
                         + ' onmousemove="tlMoveTip(event)"'
                         + ' onmouseleave="tlHideTip()"'
