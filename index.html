@@ -5816,105 +5816,176 @@
             if (tlDragCenterHour !== null && !tlIsDraggingSlider && !tlIsDraggingTimeline && !tlIsDraggingProgress && !tlIsAnimatingToToday && !tlIsZoomAnimating) tlDragCenterHour = null;
         }
 
-        // Tick bar 缓存：仅在缩放级别或范围变化时重建 DOM
+        // Tick bar: Canvas 渲染，仅在缩放级别或范围变化时重绘
         var _lastTickLevel = null;
         var _lastTickRangeKey = null;
+        var _tickCanvas = null;
 
         function tlRenderTickBar(pxh, level, gridH, rStart, rEnd) {
             var tickH = 64;
             tlTickBar.querySelector('.tick-label-col').style.height = tickH + 'px';
             tlTickArea.style.height = tickH + 'px';
 
-            // 计算缓存 key：级别 + 范围（以 gridH 为单位量化）
             var rangeKey = level + ':' + Math.floor(rStart / gridH) + '-' + Math.ceil(rEnd / gridH);
-
-            if (_lastTickLevel === level && _lastTickRangeKey === rangeKey) {
-                // 缩放级别和范围未变，跳过重建（pxh 的变化通过 CSS transform 处理）
-                return;
-            }
+            if (_lastTickLevel === level && _lastTickRangeKey === rangeKey) return;
             _lastTickLevel = level;
             _lastTickRangeKey = rangeKey;
 
-            var html = '';
+            // 懒创建 canvas（保留 now-line DOM 元素）
+            if (!_tickCanvas) {
+                _tickCanvas = document.createElement('canvas');
+                _tickCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
+                tlTickArea.innerHTML = '';
+                tlTickArea.appendChild(_tickCanvas);
+                // Re-create now-line
+                var nlt = document.createElement('div');
+                nlt.className = 'now-line'; nlt.id = 'nowLineTick';
+                nlt.style.display = 'none'; nlt.style.zIndex = '10';
+                tlTickArea.appendChild(nlt);
+                tlNowLineTickEl = nlt;
+            }
+
+            var totalW = (tlLoadedEndH - tlLoadedStartH) * pxh;
+            var dpr = window.devicePixelRatio || 1;
+            _tickCanvas.width = Math.ceil(totalW * dpr);
+            _tickCanvas.height = Math.ceil(tickH * dpr);
+            _tickCanvas.style.width = totalW + 'px';
+            _tickCanvas.style.height = tickH + 'px';
+
+            var ctx = _tickCanvas.getContext('2d');
+            ctx.scale(dpr, dpr);
+            ctx.clearRect(0, 0, totalW, tickH);
+
             var startSnapped = Math.floor(rStart / gridH) * gridH;
             var drawnDays = {};
+
             for (var h = startSnapped; h <= rEnd; h += gridH) {
                 var t = new Date(TL_TIME_ORIGIN.getTime() + h * 3600000);
                 var left = (h - tlLoadedStartH) * pxh;
                 var w = gridH * pxh;
+
+                // Hour labels (level 1-2)
                 if (level <= 2) {
-                    html += '<span class="tick-hour" style="left:'+left+'px;width:'+w+'px;top:'+(tickH-20)+'px;height:20px;line-height:20px;">'+String(t.getHours()).padStart(2,'0')+'</span>';
+                    ctx.fillStyle = '#888';
+                    ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(String(t.getHours()).padStart(2, '0'), left + w / 2, tickH - 5);
                 }
+
+                // Date labels (level 1-4)
                 if (level <= 4) {
-                    var dayH = Math.floor(h / 24) * 24;
-                    if (!(dayH in drawnDays) && dayH >= tlLoadedStartH) {
-                        drawnDays[dayH] = true;
-                        var dd = new Date(TL_TIME_ORIGIN.getTime() + dayH * 3600000);
-                        var dayLeft = (dayH - tlLoadedStartH) * pxh;
+                    var dayH2 = Math.floor(h / 24) * 24;
+                    if (!(dayH2 in drawnDays) && dayH2 >= tlLoadedStartH) {
+                        drawnDays[dayH2] = true;
+                        var dd = new Date(TL_TIME_ORIGIN.getTime() + dayH2 * 3600000);
+                        var dayLeft = (dayH2 - tlLoadedStartH) * pxh;
                         var dayW = 24 * pxh;
-                        var dateTop = level <= 2 ? 18 : 18;
-                        var dateH = level <= 2 ? 24 : 22;
-                        var dateContent;
+                        var dateTop = 18;
+                        ctx.textAlign = 'center';
                         if (level <= 3) {
-                            dateContent = '<span class="tick-weekday">'+TL_WEEKDAY_NAMES[dd.getDay()]+'</span><span class="tick-daynum">'+dd.getDate()+'</span>';
+                            ctx.fillStyle = '#888';
+                            ctx.font = '10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+                            ctx.fillText(TL_WEEKDAY_NAMES[dd.getDay()], dayLeft + dayW / 2, dateTop + 10);
+                            ctx.fillStyle = '#333';
+                            ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+                            ctx.fillText(String(dd.getDate()), dayLeft + dayW / 2, dateTop + 22);
                         } else {
-                            dateContent = '<span class="tick-daynum">'+dd.getDate()+'</span>';
+                            ctx.fillStyle = '#333';
+                            ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+                            ctx.fillText(String(dd.getDate()), dayLeft + dayW / 2, dateTop + 20);
                         }
-                        html += '<span class="tick-date" style="left:'+dayLeft+'px;width:'+dayW+'px;top:'+dateTop+'px;height:'+dateH+'px;">'+dateContent+'</span>';
                     }
                 }
+
+                // Month / Week markers
                 if (h % 24 === 0) {
                     var md = new Date(TL_TIME_ORIGIN.getTime() + h * 3600000);
                     var isMonthStart = md.getDate() === 1;
                     var isMonday = md.getDay() === 1;
                     if (isMonthStart) {
-                        html += '<span class="tick-marker tick-month" style="left:'+left+'px;top:0px;">'+(md.getMonth()+1)+'月</span>';
+                        ctx.fillStyle = '#F5222D';
+                        ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+                        ctx.textAlign = 'left';
+                        ctx.fillText((md.getMonth() + 1) + '月', left + 2, 12);
                     }
                     if (isMonday) {
                         var weekNum = tlGetISOWeek(md);
                         var wTop = isMonthStart ? 16 : 0;
-                        html += '<span class="tick-marker tick-week" style="left:'+left+'px;top:'+wTop+'px;">W'+weekNum+'</span>';
+                        ctx.fillStyle = '#346CE5';
+                        ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+                        ctx.textAlign = 'left';
+                        ctx.fillText('W' + weekNum, left + 2, wTop + 12);
                     }
                 }
             }
-            tlTickArea.innerHTML = html;
-            // Re-create now-line in tick area (innerHTML destroyed it)
-            var nlt = document.createElement('div');
-            nlt.className = 'now-line'; nlt.id = 'nowLineTick';
-            nlt.style.display = 'none'; nlt.style.zIndex = '10';
-            tlTickArea.appendChild(nlt);
-            tlNowLineTickEl = nlt;
         }
 
-        // Grid 缓存：仅在网格参数变化时重建
+        // Grid 缓存：仅在网格参数变化时重绘 Canvas
         var _lastGridKey = null;
+        var _gridCanvas = null;
 
         function tlRenderGrid(pxh, gridH, rStart, rEnd) {
             var gridKey = gridH + ':' + Math.floor(rStart / gridH) + '-' + Math.ceil(rEnd / gridH);
             if (_lastGridKey === gridKey) return;
             _lastGridKey = gridKey;
 
+            // 懒创建 canvas
+            if (!_gridCanvas) {
+                _gridCanvas = document.createElement('canvas');
+                _gridCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
+                tlGridLayer.innerHTML = '';
+                tlGridLayer.appendChild(_gridCanvas);
+            }
+
             var startSnapped = Math.floor(rStart / gridH) * gridH;
-            var html = '';
+            var totalW = (tlLoadedEndH - tlLoadedStartH) * pxh;
+            var h = tlScrollEl ? (tlScrollEl.clientHeight || 800) : 800;
+            var dpr = window.devicePixelRatio || 1;
+
+            _gridCanvas.width = Math.ceil(totalW * dpr);
+            _gridCanvas.height = Math.ceil(h * dpr);
+            _gridCanvas.style.width = totalW + 'px';
+            _gridCanvas.style.height = h + 'px';
+
+            var ctx = _gridCanvas.getContext('2d');
+            ctx.scale(dpr, dpr);
+
+            // Weekend backgrounds
             var dayStart = Math.floor(rStart / 24) * 24;
-            for (var h = dayStart; h <= rEnd; h += 24) {
-                var t = new Date(TL_TIME_ORIGIN.getTime() + h * 3600000);
-                if (t.getDay() === 6) {
-                    html += '<div class="weekend-bg" style="left:'+((h - tlLoadedStartH)*pxh)+'px;width:'+(48*pxh)+'px;"></div>';
+            ctx.fillStyle = '#f0f0f0';
+            for (var wh = dayStart; wh <= rEnd; wh += 24) {
+                var wt = new Date(TL_TIME_ORIGIN.getTime() + wh * 3600000);
+                if (wt.getDay() === 6) {
+                    var wx = (wh - tlLoadedStartH) * pxh;
+                    var ww = 48 * pxh;
+                    ctx.fillRect(wx, 0, ww, h);
                 }
             }
-            for (var h = startSnapped; h <= rEnd; h += gridH) {
-                var t = new Date(TL_TIME_ORIGIN.getTime() + h * 3600000);
-                var left = (h - tlLoadedStartH) * pxh;
-                var cls = 'grid-line';
-                var style = 'left:'+left+'px;';
-                if (gridH < 24 && h % 24 === 0) cls += ' day-boundary';
-                if (h % 24 === 0 && t.getDate() === 1) cls += ' month-boundary';
-                // Hour-level grid lines only appear below the tick bar
-                if (gridH < 24 && h % 24 !== 0) style += 'top:64px;';
-                html += '<div class="'+cls+'" style="'+style+'"></div>';
+
+            // Grid lines
+            for (var gh = startSnapped; gh <= rEnd; gh += gridH) {
+                var gt = new Date(TL_TIME_ORIGIN.getTime() + gh * 3600000);
+                var gx = (gh - tlLoadedStartH) * pxh;
+                var isDayBoundary = gridH < 24 && gh % 24 === 0;
+                var isMonthBoundary = gh % 24 === 0 && gt.getDate() === 1;
+
+                ctx.beginPath();
+                if (isMonthBoundary) {
+                    ctx.strokeStyle = '#bbb';
+                    ctx.lineWidth = 2;
+                } else if (isDayBoundary) {
+                    ctx.strokeStyle = '#bbb';
+                    ctx.lineWidth = 1;
+                } else {
+                    ctx.strokeStyle = '#d5d5d5';
+                    ctx.lineWidth = 1;
+                }
+                // Hour-level lines start below tick bar
+                var lineTop = (gridH < 24 && gh % 24 !== 0) ? 64 : 0;
+                ctx.moveTo(gx, lineTop);
+                ctx.lineTo(gx, h);
+                ctx.stroke();
             }
-            tlGridLayer.innerHTML = html;
         }
 
         // --- Heatmap ---
@@ -6055,14 +6126,45 @@
             hmSaveRules();
         }
 
-        // Heatmap 缓存：范围未变时跳过重建
+        // Heatmap: Canvas 渲染，带 hitTest tooltip
         var _lastHeatmapKey = null;
+        var _heatmapCanvas = null;
+        var _heatmapCells = []; // for hitTest
 
         function tlRenderHeatmap(pxh, gridH, rStart, rEnd) {
             if (!tlHeatmapArea) return;
             var heatmapKey = gridH + ':' + Math.floor(rStart / gridH) + '-' + Math.ceil(rEnd / gridH);
             if (_lastHeatmapKey === heatmapKey) return;
             _lastHeatmapKey = heatmapKey;
+
+            // 懒创建 canvas
+            if (!_heatmapCanvas) {
+                _heatmapCanvas = document.createElement('canvas');
+                _heatmapCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
+                tlHeatmapArea.innerHTML = '';
+                tlHeatmapArea.appendChild(_heatmapCanvas);
+                // hitTest for tooltip
+                _heatmapCanvas.addEventListener('mousemove', function(e) {
+                    var rect = _heatmapCanvas.getBoundingClientRect();
+                    var mx = e.clientX - rect.left;
+                    var found = null;
+                    for (var i = _heatmapCells.length - 1; i >= 0; i--) {
+                        var c = _heatmapCells[i];
+                        if (mx >= c.x && mx <= c.x + c.w) { found = c; break; }
+                    }
+                    if (found) {
+                        tlHeatmapTooltip.textContent = found.tip;
+                        tlHeatmapTooltip.style.display = 'block';
+                        tlHeatmapTooltip.style.left = (e.clientX + 12) + 'px';
+                        tlHeatmapTooltip.style.top = (e.clientY - 40) + 'px';
+                    } else {
+                        tlHeatmapTooltip.style.display = 'none';
+                    }
+                });
+                _heatmapCanvas.addEventListener('mouseleave', function() {
+                    tlHeatmapTooltip.style.display = 'none';
+                });
+            }
 
             var configs = getConfigs();
             var allPeriods = [];
@@ -6073,43 +6175,69 @@
                     allPeriods.push({ start: s.openTime, end: s.closeTime, name: c.activityName || c.activityKey || '?' });
                 });
             });
-            if (allPeriods.length === 0) { tlHeatmapArea.innerHTML = ''; return; }
+
+            var heatmapH = tlHeatmapArea.clientHeight || 40;
+            var totalW = (tlLoadedEndH - tlLoadedStartH) * pxh;
+            var dpr = window.devicePixelRatio || 1;
+
+            if (allPeriods.length === 0) {
+                _heatmapCanvas.width = 1;
+                _heatmapCanvas.height = 1;
+                _heatmapCells = [];
+                return;
+            }
+
+            _heatmapCanvas.width = Math.ceil(totalW * dpr);
+            _heatmapCanvas.height = Math.ceil(heatmapH * dpr);
+            _heatmapCanvas.style.width = totalW + 'px';
+            _heatmapCanvas.style.height = heatmapH + 'px';
+
+            var ctx = _heatmapCanvas.getContext('2d');
+            ctx.scale(dpr, dpr);
+            ctx.clearRect(0, 0, totalW, heatmapH);
 
             // Count per grid interval
             var startSnapped = Math.floor(rStart / gridH) * gridH;
             var hEnd = Math.ceil(rEnd);
             var counts = {};
             var intervalActivities = {};
-            for (var h = startSnapped; h <= hEnd; h += gridH) {
-                counts[h] = 0;
-                intervalActivities[h] = [];
+            for (var hh = startSnapped; hh <= hEnd; hh += gridH) {
+                counts[hh] = 0;
+                intervalActivities[hh] = [];
             }
             allPeriods.forEach(function(p) {
                 var psH = (p.start - TL_TIME_ORIGIN) / 3600000;
                 var peH = (p.end - TL_TIME_ORIGIN) / 3600000;
                 var sH = Math.max(startSnapped, Math.ceil(psH));
                 var eH = Math.min(hEnd, Math.floor(peH));
-                for (var h = sH; h < eH; h++) {
-                    counts[h] = (counts[h] || 0) + 1;
-                    if (!intervalActivities[h]) intervalActivities[h] = [];
-                    intervalActivities[h].push(p.name);
+                for (var hh = sH; hh < eH; hh++) {
+                    counts[hh] = (counts[hh] || 0) + 1;
+                    if (!intervalActivities[hh]) intervalActivities[hh] = [];
+                    intervalActivities[hh].push(p.name);
                 }
             });
 
-            var html = '';
-            for (var h = startSnapped; h <= hEnd; h += gridH) {
-                var left = (h - tlLoadedStartH) * pxh;
+            _heatmapCells = [];
+            for (var hh = startSnapped; hh <= hEnd; hh += gridH) {
+                var left = (hh - tlLoadedStartH) * pxh;
                 var w = gridH * pxh;
-                var count = counts[h] || 0;
+                var count = counts[hh] || 0;
                 var color = tlGetHeatmapColor(count);
-                // Gradient: lighter version at top, full color at bottom
                 var lighter = lightenColor(color, 40);
-                var acts = (intervalActivities[h] || []).slice(0, 8);
+                var acts = (intervalActivities[hh] || []).slice(0, 8);
                 var tip = count + ' 个活动';
-                if (acts.length > 0) tip += ': ' + acts.join(', ') + (acts.length < (intervalActivities[h] || []).length ? '...' : '');
-                html += '<div class="heatmap-cell" style="left:'+left+'px;width:'+w+'px;background:linear-gradient(to bottom,'+lighter+','+color+');" data-tip="'+escapeHtml(tip)+'"></div>';
+                if (acts.length > 0) tip += ': ' + acts.join(', ') + (acts.length < (intervalActivities[hh] || []).length ? '...' : '');
+
+                // Gradient fill
+                var grad = ctx.createLinearGradient(left, 0, left, heatmapH);
+                grad.addColorStop(0, lighter);
+                grad.addColorStop(1, color);
+                ctx.fillStyle = grad;
+                ctx.fillRect(left, 0, Math.max(w, 1), heatmapH);
+
+                _heatmapCells.push({ x: left, w: Math.max(w, 1), tip: tip });
             }
-            tlHeatmapArea.innerHTML = html;
+        }
         }
 
         function tlRenderBars(pxh, rStart, rEnd) {
