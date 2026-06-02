@@ -214,7 +214,6 @@
         }
         .tl-toggle-btn.active .tl-toggle-track::after { transform: translateX(12px); }
         .tl-toggle-label { user-select: none; }
-        .bar-stopped { opacity: 0.4; }
         .t-label-stopped { color: #999; text-decoration: line-through; }
 
         /* Merge group styles */
@@ -581,71 +580,7 @@
             border-right: 2px solid #ddd; position: sticky; left: 0; z-index: 50;
             display: flex; align-items: center;
         }
-        .t-row-bars { position: relative; flex: 1; height: 100%; overflow: hidden; will-change: contents; }
-        .bar {
-            position: absolute; top: 2px; height: var(--tl-bar-height, 25px); border-radius: 4px;
-            font-size: 11px; display: flex; align-items: center;
-            padding: 0 8px; white-space: nowrap; overflow: hidden;
-            text-overflow: ellipsis; cursor: pointer;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.2); z-index: 1;
-            min-width: 0;
-        }
-        .bar > span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-        .bar:hover { filter: brightness(1.1); box-shadow: 0 2px 6px rgba(0,0,0,0.3); z-index: 2; }
-        .bar.bar-selected {
-            z-index: 10 !important;
-            outline: 3px solid #1677FF;
-            outline-offset: 3px;
-        }
-        .bar-stripe {
-            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-            background: linear-gradient(
-                45deg,
-                rgba(0,0,0,0.13) 0,
-                rgba(0,0,0,0.13) 50%,
-                rgba(255,255,255,0.18) 50%,
-                rgba(255,255,255,0.18) 100%
-            );
-            background-size: 12px 12px;
-            pointer-events: none;
-            z-index: 0;
-            border-radius: inherit;
-        }
-        .bar-active > span { position: relative; z-index: 1; }
-        .bar-first::before {
-            content: ''; position: absolute; left: 0; top: 0; bottom: 0;
-            width: 4px; background: linear-gradient(180deg, #ff6b6b, #EF89D2);
-            border-radius: 4px 0 0 4px; z-index: 1;
-        }
-        .bar-first { overflow: visible; }
-        .bar-first.bar-sweep::after {
-            content: '';
-            position: absolute;
-            top: -20%; bottom: -20%;
-            width: 35%;
-            background: linear-gradient(105deg,
-                transparent 0%,
-                rgba(255,255,255,0.05) 30%,
-                rgba(255,255,255,0.55) 50%,
-                rgba(255,255,255,0.05) 70%,
-                transparent 100%
-            );
-            animation: sweep-across 1s ease-in-out forwards;
-            z-index: 5;
-            pointer-events: none;
-        }
-        .bar-first.bar-sweep {
-            overflow: hidden;
-            animation: sweep-bright 1.6s ease-out;
-        }
-        @keyframes sweep-across { from { left: -35%; } to { left: 100%; } }
-        @keyframes sweep-bright {
-            0%   { filter: brightness(1); }
-            10%  { filter: brightness(1.35); }
-            35%  { filter: brightness(1.25); }
-            60%  { filter: brightness(1.1); }
-            100% { filter: brightness(1); }
-        }
+        .t-row-bars { position: relative; flex: 1; height: 100%; overflow: hidden; }
 
         #tlBody { position: relative; z-index: 1; }
         .now-line-body-wrap {
@@ -5207,32 +5142,17 @@
         var tlTimelineRowsDirty = true;
         var tlShowStopped = false;
 
-        // Barber-pole animation: 按需启停，缓存 stripe 元素引用
-        var _barberStripes = [];
+        // Barber-pole animation: Canvas 重绘模式
         var _barberRafId = null;
         var _barberRunning = false;
-
-        function updateBarberStripes() {
-            _barberStripes = Array.from(document.querySelectorAll('.bar-stripe'));
-        }
 
         function startBarberAnimation() {
             if (_barberRunning) return;
             _barberRunning = true;
-            updateBarberStripes();
-            var _lastStripeCount = _barberStripes.length;
             function barberLoop() {
                 if (!_barberRunning) return;
-                // 检测 DOM 中 stripe 数量变化时刷新缓存
-                var curCount = document.querySelectorAll('.bar-stripe').length;
-                if (curCount !== _lastStripeCount) {
-                    updateBarberStripes();
-                    _lastStripeCount = _barberStripes.length;
-                }
-                var off = performance.now() / 2000 * 12 % 12;
-                for (var i = 0; i < _barberStripes.length; i++) {
-                    _barberStripes[i].style.backgroundPosition = off + 'px 0';
-                }
+                // 只调度一次完整渲染，让 tlRenderBars 内部处理 active bar 的条纹
+                tlScheduleRender();
                 _barberRafId = requestAnimationFrame(barberLoop);
             }
             barberLoop();
@@ -5587,6 +5507,8 @@
             });
             tlTimelineRowsDirty = false;
             _barDataDirty = true;
+            _barRowCanvases = [];
+            _barCellsAll = [];
         }
 
         function tlRenderNormalRow(parent, r, type, isHidden) {
@@ -6241,65 +6163,119 @@
             }
         }
 
-        // Bars: 增量更新，拖动时仅更新位置
-        var _barDataDirty = true; // 数据变更时需要重建
+        // Bars: Canvas 渲染
+        var _barDataDirty = true;
+        var _barRowCanvases = []; // per-row canvas refs, parallel to tlRowElements
+        var _barCellsAll = [];   // per-row hitTest data
+        var _hoveredBar = null;  // {rowIdx, cellIdx}
+        var _selectedBarInfo = null; // {configId, period}
+
+        function _ensureBarCanvas(re, idx) {
+            if (_barRowCanvases[idx]) return _barRowCanvases[idx];
+            var canvas = document.createElement('canvas');
+            canvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;cursor:pointer;';
+            // hitTest events
+            canvas.addEventListener('mousemove', function(e) {
+                if (tlIsInteracting()) return;
+                var rect = canvas.getBoundingClientRect();
+                var mx = e.clientX - rect.left;
+                var cells = _barCellsAll[idx];
+                var found = null;
+                for (var i = cells.length - 1; i >= 0; i--) {
+                    var c = cells[i];
+                    if (mx >= c.x && mx <= c.x + c.w) { found = c; break; }
+                }
+                if (found) {
+                    tlShowTip(e, found.name, found.start, found.end, found.skin);
+                    canvas.style.cursor = 'pointer';
+                    _hoveredBar = { rowIdx: idx, cellIdx: i };
+                } else {
+                    tlHideTip();
+                    canvas.style.cursor = 'default';
+                    _hoveredBar = null;
+                }
+            });
+            canvas.addEventListener('mouseleave', function() {
+                tlHideTip();
+                _hoveredBar = null;
+            });
+            canvas.addEventListener('click', function(e) {
+                var rect = canvas.getBoundingClientRect();
+                var mx = e.clientX - rect.left;
+                var cells = _barCellsAll[idx];
+                var found = null;
+                for (var i = cells.length - 1; i >= 0; i--) {
+                    var c = cells[i];
+                    if (mx >= c.x && mx <= c.x + c.w) { found = c; break; }
+                }
+                if (found) {
+                    tlSelectBar(found.configId, found.period);
+                }
+            });
+            re.barsEl.innerHTML = '';
+            re.barsEl.appendChild(canvas);
+            _barRowCanvases[idx] = canvas;
+            return canvas;
+        }
+
+        function _drawBarStripe(ctx, x, y, w, h, offset) {
+            // barber-pole diagonal stripes
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(x, y, w, h);
+            ctx.clip();
+            ctx.globalAlpha = 0.15;
+            var size = 12;
+            var off = offset % (size * 2);
+            ctx.fillStyle = '#000';
+            for (var sx = x - h - size * 2 + off; sx < x + w + size * 2; sx += size * 2) {
+                ctx.beginPath();
+                ctx.moveTo(sx, y + h);
+                ctx.lineTo(sx + size, y + h);
+                ctx.lineTo(sx + size + h, y);
+                ctx.lineTo(sx + h, y);
+                ctx.closePath();
+                ctx.fill();
+            }
+            ctx.globalAlpha = 0.08;
+            ctx.fillStyle = '#fff';
+            for (var sx = x - h + off; sx < x + w + size * 2; sx += size * 2) {
+                ctx.beginPath();
+                ctx.moveTo(sx, y + h);
+                ctx.lineTo(sx + size, y + h);
+                ctx.lineTo(sx + size + h, y);
+                ctx.lineTo(sx + h, y);
+                ctx.closePath();
+                ctx.fill();
+            }
+            ctx.restore();
+        }
 
         function tlRenderBars(pxh, rStart, rEnd) {
             var now = Date.now();
-            var sl = tlScrollEl.scrollLeft;
+            var totalW = (tlLoadedEndH - tlLoadedStartH) * pxh;
+            var dpr = window.devicePixelRatio || 1;
+            var barH = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--tl-bar-height')) || 25;
+            var rowH = barH + 4; // top 2px + bar + bottom margin
 
-            if (!_barDataDirty) {
-                // 快速路径：检查是否所有可见 period 都已在 DOM 中
-                var needRebuild = false;
-                for (var ri = 0; ri < tlRowElements.length; ri++) {
-                    var _re = tlRowElements[ri];
-                    var visiblePeriods = 0;
-                    for (var pi = 0; pi < _re.row.periods.length; pi++) {
-                        var _p = _re.row.periods[pi];
-                        var _psH = (_p.start - TL_TIME_ORIGIN) / 3600000;
-                        var _peH = (_p.end - TL_TIME_ORIGIN) / 3600000;
-                        if (_peH >= rStart && _psH <= rEnd) visiblePeriods++;
-                    }
-                    if (visiblePeriods !== _re.barsEl.children.length) {
-                        needRebuild = true;
-                        break;
-                    }
-                }
+            // ensure canvas count matches rows
+            while (_barRowCanvases.length < tlRowElements.length) _barRowCanvases.push(null);
+            while (_barCellsAll.length < tlRowElements.length) _barCellsAll.push([]);
 
-                if (!needRebuild) {
-                    // 快速路径：只更新已有 bar 的 left/width
-                    tlRowElements.forEach(function(re) {
-                        var bars = re.barsEl.children;
-                        for (var i = 0; i < bars.length; i++) {
-                            var bar = bars[i];
-                            if (!bar.dataset || !bar.dataset.sh) continue;
-                            var sH = parseFloat(bar.dataset.sh);
-                            var eH = parseFloat(bar.dataset.eh);
-                            if (eH < rStart || sH > rEnd) {
-                                bar.style.display = 'none';
-                                continue;
-                            }
-                            var rawLeft = (sH - tlLoadedStartH) * pxh;
-                            var rawWidth = (eH - sH) * pxh;
-                            bar.style.left = Math.max(0, rawLeft) + 'px';
-                            bar.style.width = Math.max(20, rawWidth - Math.max(0, -rawLeft)) + 'px';
-                            bar.style.display = '';
-                            // Update active class
-                            var startMs = TL_TIME_ORIGIN.getTime() + sH * 3600000;
-                            var endMs = TL_TIME_ORIGIN.getTime() + eH * 3600000;
-                            var isActive = now >= startMs && now <= endMs;
-                            bar.classList.toggle('bar-active', isActive);
-                        }
-                    });
-                    tlRestoreBarSelection();
-                    return;
-                }
-            }
+            tlRowElements.forEach(function(re, idx) {
+                var canvas = _ensureBarCanvas(re, idx);
+                var h = re.barsEl.clientHeight || 29;
 
-            // 慢速路径：数据变更时重建所有 bar
-            _barDataDirty = false;
-            tlRowElements.forEach(function(re) {
-                var html = '';
+                canvas.width = Math.ceil(totalW * dpr);
+                canvas.height = Math.ceil(h * dpr);
+                canvas.style.width = totalW + 'px';
+                canvas.style.height = h + 'px';
+
+                var ctx = canvas.getContext('2d');
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                ctx.clearRect(0, 0, totalW, h);
+
+                var cells = [];
                 re.row.periods.forEach(function(p) {
                     var sH = (p.start - TL_TIME_ORIGIN) / 3600000;
                     var eH = (p.end - TL_TIME_ORIGIN) / 3600000;
@@ -6308,46 +6284,177 @@
                     var rawWidth = (eH - sH) * pxh;
                     var left = Math.max(0, rawLeft);
                     var width = Math.max(20, rawWidth - Math.max(0, -rawLeft));
-                    // Per-period metadata for merge groups
+                    var top = 2;
+
                     var pConfigId = p._configId || re.row.configId;
                     var pName = p._name || re.row.name;
                     var pBarColor = p._barColor || re.row.barColor;
                     var pDisabled = p._disabled != null ? p._disabled : re.row.disabled;
-                    var cls = 'bar';
-                    if (now >= p.start.getTime() && now <= p.end.getTime()) cls += ' bar-active';
-                    if (p.period === 1) cls += ' bar-first';
-                    if (pDisabled) cls += ' bar-stopped';
-                    var bgStyle = '';
-                    var textColor = '#fff';
+
+                    var isActive = now >= p.start.getTime() && now <= p.end.getTime();
+                    var isFirst = p.period === 1;
+                    var isSelected = _selectedBarInfo && _selectedBarInfo.configId === pConfigId && _selectedBarInfo.period === p.period;
+
+                    // colors
+                    var baseColor, textColor;
                     if (pBarColor) {
-                        bgStyle = 'background:linear-gradient(135deg,'+pBarColor+','+lightenColor(pBarColor,30)+');';
+                        baseColor = pBarColor;
                         textColor = contrastColor(pBarColor);
                     } else {
                         var typeColors = {'festival':'#F5222D','gift':'#1677FF','feature':'#EB2F96','default':'#FAAD14'};
-                        var baseColor = typeColors[re.row.activityType] || '#999';
-                        bgStyle = 'background:linear-gradient(135deg,'+baseColor+','+lightenColor(baseColor,30)+');';
+                        baseColor = typeColors[re.row.activityType] || '#999';
                         textColor = contrastColor(baseColor);
                     }
-                    var textPush = sl > left ? Math.min(sl - left, width - 8) : 0;
-                    var spanStyle = '';
-                    if (textPush > 0) {
-                        var spanMaxW = Math.max(20, width - textPush - 16);
-                        spanStyle = ' style="margin-left:'+textPush+'px;max-width:'+spanMaxW+'px"';
+                    var grad = ctx.createLinearGradient(left, top, left + width, top + barH);
+                    grad.addColorStop(0, baseColor);
+                    grad.addColorStop(1, lightenColor(baseColor, 30));
+
+                    ctx.globalAlpha = pDisabled ? 0.4 : 1;
+
+                    // bar background
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    if (ctx.roundRect) {
+                        ctx.roundRect(left, top, width, barH, 4);
+                    } else {
+                        ctx.rect(left, top, width, barH);
                     }
-                    var _bpOff = performance.now() / 2000 * 12 % 12;
-                    var activeOverlay = (cls.indexOf('bar-active') >= 0) ? '<div class="bar-stripe" style="background-position:'+_bpOff+'px 0"></div>' : '';
-                    html += '<div class="'+cls+'" data-period="'+p.period+'" data-sh="'+sH+'" data-eh="'+eH+'" style="left:'+left+'px;width:'+width+'px;'+bgStyle+'color:'+textColor+';"'
-                        + ' onmouseenter="tlShowTip(event,\''+escapeHtml(pName)+'\',\''+tlFmtDT(p.start)+'\',\''+tlFmtDT(p.end)+'\',\''+escapeHtml(p.skin||'')+'\')"'
-                        + ' onmousemove="tlMoveTip(event)"'
-                        + ' onmouseleave="tlHideTip()"'
-                        + ' onclick="tlSelectBar(this,\''+pConfigId+'\')"'
-                        + '>'+activeOverlay+'<span'+spanStyle+'>'+(p.period === 1 ? '<span style="font-size:0.85em;margin-right:2px;">🆕</span>' : '')+escapeHtml(pName)+' 第'+p.period+'期</span></div>';
+                    ctx.fill();
+
+                    // shadow
+                    ctx.shadowColor = 'rgba(0,0,0,0.2)';
+                    ctx.shadowBlur = 3;
+                    ctx.shadowOffsetY = 1;
+                    ctx.beginPath();
+                    if (ctx.roundRect) {
+                        ctx.roundRect(left, top, width, barH, 4);
+                    } else {
+                        ctx.rect(left, top, width, barH);
+                    }
+                    ctx.fill();
+                    ctx.shadowColor = 'transparent';
+                    ctx.shadowBlur = 0;
+                    ctx.shadowOffsetY = 0;
+
+                    // first-period left marker
+                    if (isFirst) {
+                        var markerGrad = ctx.createLinearGradient(left, top, left, top + barH);
+                        markerGrad.addColorStop(0, '#ff6b6b');
+                        markerGrad.addColorStop(1, '#EF89D2');
+                        ctx.fillStyle = markerGrad;
+                        ctx.beginPath();
+                        if (ctx.roundRect) {
+                            ctx.roundRect(left, top, 4, barH, [4, 0, 0, 4]);
+                        } else {
+                            ctx.rect(left, top, 4, barH);
+                        }
+                        ctx.fill();
+                    }
+
+                    // barber-pole for active bars
+                    if (isActive) {
+                        var bpOff = performance.now() / 2000 * 12 % 12;
+                        _drawBarStripe(ctx, left, top, width, barH, bpOff);
+                    }
+
+                    // sweep animation for first-period bars
+                    if (isFirst && _sweepCells.length > 0) {
+                        for (var si = 0; si < _sweepCells.length; si++) {
+                            var sc = _sweepCells[si];
+                            if (sc.rowIdx === idx && sc.cell.configId === pConfigId && sc.cell.period === p.period) {
+                                var elapsed = performance.now() - _sweepStartTime;
+                                var progress = Math.min(1, elapsed / 1000);
+                                var sweepX = left + progress * width * 1.35 - width * 0.35;
+                                ctx.save();
+                                ctx.beginPath();
+                                ctx.rect(left, top, width, barH);
+                                ctx.clip();
+                                var sweepGrad = ctx.createLinearGradient(sweepX - width * 0.35, 0, sweepX, 0);
+                                sweepGrad.addColorStop(0, 'rgba(255,255,255,0)');
+                                sweepGrad.addColorStop(0.3, 'rgba(255,255,255,0.05)');
+                                sweepGrad.addColorStop(0.5, 'rgba(255,255,255,0.55)');
+                                sweepGrad.addColorStop(0.7, 'rgba(255,255,255,0.05)');
+                                sweepGrad.addColorStop(1, 'rgba(255,255,255,0)');
+                                ctx.fillStyle = sweepGrad;
+                                ctx.fillRect(sweepX - width * 0.35, top, width * 0.7, barH);
+                                ctx.restore();
+                                // brightness overlay
+                                if (elapsed < 1600) {
+                                    var bright = 1 + 0.35 * Math.exp(-elapsed / 400);
+                                    ctx.save();
+                                    ctx.globalAlpha = (bright - 1);
+                                    ctx.fillStyle = '#fff';
+                                    ctx.beginPath();
+                                    if (ctx.roundRect) { ctx.roundRect(left, top, width, barH, 4); } else { ctx.rect(left, top, width, barH); }
+                                    ctx.fill();
+                                    ctx.restore();
+                                }
+                                break;
+                            }
+                        }
+                    }
+
+                    // hover highlight
+                    if (_hoveredBar && _hoveredBar.rowIdx === idx) {
+                        var hc = _barCellsAll[idx];
+                        // will check against cells after building them
+                    }
+
+                    // text
+                    ctx.fillStyle = textColor;
+                    ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+                    ctx.textBaseline = 'middle';
+                    var text = (isFirst ? '🆕 ' : '') + pName + ' 第' + p.period + '期';
+                    var textX = left + 8;
+                    var maxTextW = width - 16;
+                    // text push (sticky text when bar scrolls left)
+                    var sl = tlScrollEl.scrollLeft;
+                    if (sl > left) {
+                        var push = Math.min(sl - left, width - 8);
+                        textX = left + push + 4;
+                        maxTextW = Math.max(20, width - push - 12);
+                    }
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.rect(left, top, width, barH);
+                    ctx.clip();
+                    // truncate text with ellipsis
+                    var measured = ctx.measureText(text).width;
+                    if (measured > maxTextW) {
+                        while (text.length > 3 && ctx.measureText(text + '…').width > maxTextW) {
+                            text = text.slice(0, -1);
+                        }
+                        text += '…';
+                    }
+                    ctx.fillText(text, textX, top + barH / 2);
+                    ctx.restore();
+
+                    ctx.globalAlpha = 1;
+
+                    // selection outline
+                    if (isSelected) {
+                        ctx.strokeStyle = '#1677FF';
+                        ctx.lineWidth = 3;
+                        ctx.beginPath();
+                        if (ctx.roundRect) {
+                            ctx.roundRect(left - 3, top - 3, width + 6, barH + 6, 6);
+                        } else {
+                            ctx.rect(left - 3, top - 3, width + 6, barH + 6);
+                        }
+                        ctx.stroke();
+                    }
+
+                    // hitTest cell
+                    cells.push({
+                        x: left, w: width,
+                        name: pName, start: tlFmtDT(p.start), end: tlFmtDT(p.end),
+                        skin: p.skin || '', configId: pConfigId, period: p.period,
+                        isActive: isFirst
+                    });
                 });
-                re.barsEl.innerHTML = html;
+                _barCellsAll[idx] = cells;
             });
-            // 更新 barber-pole stripe 缓存
-            if (typeof updateBarberStripes === 'function') updateBarberStripes();
-            tlRestoreBarSelection();
+            _barDataDirty = false;
         }
 
         function tlRenderNow(pxh) {
@@ -6384,50 +6491,21 @@
         }
         function tlHideTip() { if (tlTooltipEl) tlTooltipEl.style.display = 'none'; }
 
-        function tlSelectBar(el, configId) {
-            // Remove previous selection
+        function tlSelectBar(configId, period) {
             tlClearBarSelection();
-            // Record selected period
-            tlSelectedPeriod = parseInt(el.getAttribute('data-period')) || null;
-            // Add selection outline
-            el.classList.add('bar-selected');
-            // Allow parent overflow for outline visibility
-            var barsEl = el.closest('.t-row-bars');
-            if (barsEl) barsEl.style.overflow = 'visible';
-            var rowEl = el.closest('.t-row');
-            if (rowEl) rowEl.style.zIndex = '10';
+            _selectedBarInfo = { configId: configId, period: period };
+            tlSelectedPeriod = period;
             selectConfig(configId);
             openTlPanel();
+            tlScheduleRender();
         }
 
         function tlClearBarSelection() {
-            var prev = tlScrollEl.querySelectorAll('.bar-selected');
-            prev.forEach(function(b) {
-                b.classList.remove('bar-selected');
-                var barsEl = b.closest('.t-row-bars');
-                if (barsEl) barsEl.style.overflow = '';
-                var rowEl = b.closest('.t-row');
-                if (rowEl) rowEl.style.zIndex = '';
-            });
+            _selectedBarInfo = null;
         }
 
         function tlRestoreBarSelection() {
-            var panel = document.getElementById('tlPanel');
-            if (!panel.classList.contains('open')) return;
-            if (!currentConfig) return;
-            var selBar;
-            if (tlSelectedPeriod != null) {
-                selBar = tlScrollEl.querySelector('.bar[onclick*="' + currentConfig.id + '"][data-period="' + tlSelectedPeriod + '"]');
-            }
-            if (!selBar) {
-                selBar = tlScrollEl.querySelector('.bar[onclick*="' + currentConfig.id + '"]');
-            }
-            if (!selBar) return;
-            selBar.classList.add('bar-selected');
-            var barsEl = selBar.closest('.t-row-bars');
-            if (barsEl) barsEl.style.overflow = 'visible';
-            var rowEl = selBar.closest('.t-row');
-            if (rowEl) rowEl.style.zIndex = '10';
+            // Canvas 模式下选中状态在绘制时处理，无需 DOM 操作
         }
 
         // --- Slider Interaction ---
@@ -6515,30 +6593,43 @@
             }
         }
 
+        var _sweepAnimId = null;
+        var _sweepStartTime = 0;
+        var _sweepCells = [];
+
         function sweepFirstPeriod() {
             if (!tlScrollEl) return;
-            var bars = tlScrollEl.querySelectorAll('.bar-first');
             var sl = tlScrollEl.scrollLeft;
             var vpW = tlScrollEl.clientWidth - TL_LABEL_WIDTH;
             var viewLeft = sl + TL_LABEL_WIDTH;
             var viewRight = sl + tlScrollEl.clientWidth;
-            bars.forEach(function(bar) {
-                var bRect = bar.getBoundingClientRect();
-                var sRect = tlScrollEl.getBoundingClientRect();
-                var barLeft = bRect.left - sRect.left + sl;
-                var barRight = barLeft + bRect.width;
-                if (barRight >= viewLeft && barLeft <= viewRight) {
-                    bar.classList.remove('bar-sweep');
-                    void bar.offsetWidth;
-                    bar.classList.add('bar-sweep');
-                    bar.addEventListener('animationend', function handler(e) {
-                        if (e.animationName === 'sweep-bright') {
-                            bar.classList.remove('bar-sweep');
-                            bar.removeEventListener('animationend', handler);
-                        }
-                    });
+            // collect visible first-period bars from hitTest data
+            _sweepCells = [];
+            for (var idx = 0; idx < _barCellsAll.length; idx++) {
+                var cells = _barCellsAll[idx];
+                for (var ci = 0; ci < cells.length; ci++) {
+                    var c = cells[ci];
+                    if (c.period !== 1) continue;
+                    if (c.x + c.w >= viewLeft && c.x <= viewRight) {
+                        _sweepCells.push({ rowIdx: idx, cell: c });
+                    }
                 }
-            });
+            }
+            if (_sweepCells.length === 0) return;
+            _sweepStartTime = performance.now();
+            if (_sweepAnimId) cancelAnimationFrame(_sweepAnimId);
+            function sweepFrame() {
+                var elapsed = performance.now() - _sweepStartTime;
+                if (elapsed > 1600) {
+                    _sweepCells = [];
+                    _sweepAnimId = null;
+                    tlScheduleRender();
+                    return;
+                }
+                tlScheduleRender();
+                _sweepAnimId = requestAnimationFrame(sweepFrame);
+            }
+            sweepFrame();
         }
 
         // --- Merge group utilities ---
@@ -7053,7 +7144,7 @@
 
             // Timeline drag/pan
             tlScrollEl.addEventListener('mousedown', function(e) {
-                if (e.target.closest('.bar') || e.target.closest('.zoom-ruler')) return;
+                if (e.target.tagName === 'CANVAS' || e.target.closest('.zoom-ruler')) return;
                 if (e.target.closest('.t-row-label') || e.target.closest('.t-group-header')) return;
                 tlIsDraggingTimeline = true;
                 tlDragStartX = e.pageX;
