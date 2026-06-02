@@ -1088,7 +1088,7 @@
             renderConfigList();
             renderConfigForm();
             tlTimelineRowsDirty = true;
-            tlRender();
+            tlScheduleRender();
             updateUndoRedoButtons();
             tlShowToast('已撤销: ' + snapshot.actionName, 'success');
         }
@@ -1118,7 +1118,7 @@
             renderConfigList();
             renderConfigForm();
             tlTimelineRowsDirty = true;
-            tlRender();
+            tlScheduleRender();
             updateUndoRedoButtons();
             tlShowToast('已重做: ' + snapshot.actionName, 'success');
         }
@@ -1307,7 +1307,7 @@
                 }
 
                 renderConfigList();
-                tlRender();
+                tlScheduleRender();
 
                 console.log('从 GitHub 加载完成:', schedule.length, '条配置');
             } catch (e) {
@@ -2389,7 +2389,7 @@
                 currentConfig = null;
                 renderConfigList();
                 tlTimelineRowsDirty = true;
-                tlRender();
+                tlScheduleRender();
 
                 // 关闭弹窗
                 document.getElementById('versionSettingsModal').style.display = 'none';
@@ -2550,7 +2550,7 @@
                     // First init: scrollToToday already positioned via initTimelineIfNeeded,
                     // skip extra tlRender to avoid overwriting the position
                 } else {
-                    tlRender();
+                    tlScheduleRender();
                 }
                 // 延迟启动动画，确保 DOM 已渲染
                 requestAnimationFrame(function() { startBarberAnimation(); });
@@ -5276,13 +5276,13 @@
 	            card.classList.remove('tl-fs-exit', 'tl-fullscreen');
 	            document.body.style.overflow = '';
 	            tlTimelineRowsDirty = true;
-	            tlRender();
+	            tlScheduleRender();
 	        });
 	    } else {
 	        card.classList.add('tl-fullscreen');
 	        document.body.style.overflow = 'hidden';
 	        tlTimelineRowsDirty = true;
-	        tlRender();
+	        tlScheduleRender();
 	    }
 	}
 
@@ -5300,7 +5300,7 @@
             if (tlShowStopped) btn.classList.add('active');
             else btn.classList.remove('active');
             tlTimelineRowsDirty = true;
-            tlRender();
+            tlScheduleRender();
         }
         var tlRowElements = [];
 
@@ -5662,14 +5662,14 @@
                         mg.color = newColor;
                         dd.remove();
                         tlTimelineRowsDirty = true;
-                        tlRender();
+                        tlScheduleRender();
                     });
                 });
                 dd.querySelector('.color-custom-row input[type="color"]').addEventListener('input', function(e) {
                     e.stopPropagation();
                     mg.color = this.value;
                     tlTimelineRowsDirty = true;
-                    tlRender();
+                    tlScheduleRender();
                 });
             });
             label.querySelector('.t-merge-name').addEventListener('dblclick', function(e) {
@@ -6007,7 +6007,7 @@
                 inp.addEventListener('input', function() {
                     var idx = parseInt(this.getAttribute('data-idx'));
                     HEATMAP_RULES[idx].color = this.value;
-                    hmSaveRules(); tlTimelineRowsDirty = true; tlRender();
+                    tlScheduleRender();
                 });
             });
             popup.querySelectorAll('.hm-rule-del').forEach(function(btn) {
@@ -6016,7 +6016,7 @@
                     var idx = parseInt(this.getAttribute('data-idx'));
                     if (HEATMAP_RULES.length <= 1) return;
                     HEATMAP_RULES.splice(idx, 1);
-                    hmSaveRules(); hmRenderPopupContent(popup); tlTimelineRowsDirty = true; tlRender();
+                    hmSaveRules(); hmRenderPopupContent(popup); tlTimelineRowsDirty = true; tlScheduleRender();
                 });
             });
         }
@@ -6025,7 +6025,7 @@
             HEATMAP_RULES.push({ min: lastMin, color: '#FF4D4F', label: '自定义' });
             hmSaveRules();
             hmRenderPopupContent(hmConfigPopup);
-            tlTimelineRowsDirty = true; tlRender();
+            tlTimelineRowsDirty = true; tlScheduleRender();
         }
         function hmFillColors(btn) {
             if (HEATMAP_RULES.length === 0) return;
@@ -6036,7 +6036,7 @@
             });
             hmSaveRules();
             hmRenderPopupContent(hmConfigPopup);
-            tlTimelineRowsDirty = true; tlRender();
+            tlTimelineRowsDirty = true; tlScheduleRender();
         }
         function hmEditRuleMin(idx, val, popup) {
             var v = parseInt(val);
@@ -6046,7 +6046,7 @@
             HEATMAP_RULES.sort(function(a, b) { return a.min - b.min; });
             hmSaveRules();
             hmRenderPopupContent(popup);
-            tlTimelineRowsDirty = true; tlRender();
+            tlTimelineRowsDirty = true; tlScheduleRender();
         }
         function hmEditRuleLabel(idx, val, popup) {
             HEATMAP_RULES[idx].label = val || '';
@@ -6381,7 +6381,7 @@
             if (!mg) return;
             mg.collapsed = !mg.collapsed;
             tlTimelineRowsDirty = true;
-            tlRender();
+            tlScheduleRender();
         }
 
         function tlRenameMergeGroup(groupId, nameSpan) {
@@ -6423,7 +6423,7 @@
             mg.configIds = mg.configIds.filter(function(id) { return id !== configId; });
             if (mg.configIds.length <= 1) { tlMergeGroups.splice(mgIndex, 1); }
             tlTimelineRowsDirty = true;
-            tlRender();
+            tlScheduleRender();
         }
 
         function tlAttemptMerge(sourceConfigId, targetConfigId, sourceLabelEl) {
@@ -6479,7 +6479,7 @@
                 });
             }
             tlTimelineRowsDirty = true;
-            tlRender();
+            tlScheduleRender();
         }
 
         // --- Merge drag interaction ---
@@ -6694,7 +6694,7 @@
             tlTimelineRowsDirty = true;
             isNewUnsaved = false;
             closeTlPanel();
-            tlRender();
+            tlScheduleRender();
         }
 
         function onTlActivityKeyChange() {
