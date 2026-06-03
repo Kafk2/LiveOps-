@@ -6219,37 +6219,34 @@
         }
 
         function _drawBarStripe(ctx, x, y, w, h, offset) {
-            // barber-pole: moving small triangles
+            // barber-pole: 45-degree diagonal stripes (matching CSS original)
             ctx.save();
             ctx.beginPath();
             ctx.rect(x, y, w, h);
             ctx.clip();
-            var triW = 8, triH = 6;
-            var spacing = 14;
-            var off = offset % spacing;
-            // dark triangles (▼)
+            var size = 12;
+            var off = offset % (size * 2);
+            // Draw 45-degree stripes shifted by offset
+            // Each stripe is a parallelogram spanning the full height
             ctx.fillStyle = 'rgba(0,0,0,0.13)';
-            for (var col = x - spacing + off; col < x + w + spacing; col += spacing) {
-                for (var row = y; row < y + h; row += triH * 2) {
-                    ctx.beginPath();
-                    ctx.moveTo(col, row);
-                    ctx.lineTo(col + triW, row);
-                    ctx.lineTo(col + triW / 2, row + triH);
-                    ctx.closePath();
-                    ctx.fill();
-                }
+            for (var sx = x - h - size * 2 + off; sx < x + w + size * 2; sx += size * 2) {
+                ctx.beginPath();
+                ctx.moveTo(sx, y + h);
+                ctx.lineTo(sx + size, y + h);
+                ctx.lineTo(sx + size + h, y);
+                ctx.lineTo(sx + h, y);
+                ctx.closePath();
+                ctx.fill();
             }
-            // light triangles (▲)
             ctx.fillStyle = 'rgba(255,255,255,0.18)';
-            for (var col = x - spacing + off + triW / 2; col < x + w + spacing; col += spacing) {
-                for (var row = y + triH; row < y + h; row += triH * 2) {
-                    ctx.beginPath();
-                    ctx.moveTo(col, row - triH);
-                    ctx.lineTo(col + triW, row - triH);
-                    ctx.lineTo(col + triW / 2, row);
-                    ctx.closePath();
-                    ctx.fill();
-                }
+            for (var sx = x - h - size * 2 + size + off; sx < x + w + size * 2; sx += size * 2) {
+                ctx.beginPath();
+                ctx.moveTo(sx, y + h);
+                ctx.lineTo(sx + size, y + h);
+                ctx.lineTo(sx + size + h, y);
+                ctx.lineTo(sx + h, y);
+                ctx.closePath();
+                ctx.fill();
             }
             ctx.restore();
         }
