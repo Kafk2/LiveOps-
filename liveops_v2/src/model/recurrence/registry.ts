@@ -27,6 +27,8 @@ export interface RecurrenceMode {
   parse(arr: number[]): Partial<WizardState>;
   /** 人类可读预览 */
   preview(arr: number[]): string;
+  /** UI 扩展点：该模式的配置面板，编辑时调 onChange(nextWizardState) */
+  createEditor(state: WizardState, onChange: (next: WizardState) => void): HTMLElement;
 }
 
 const modes = new Map<string, RecurrenceMode>();

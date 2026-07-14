@@ -22,6 +22,7 @@ import { CSV_SCHEMA } from '@/schema/csv-schema';
 import { createEmptyConfig, copyConfig } from '@/model/config';
 import { encodeConfigs } from '@/services/csv-codec';
 import { renderTimeline } from '@/ui/timeline';
+import { createRecurrenceWizard } from '@/ui/recurrence-wizard';
 
 const TABS: { key: TabKey; label: string; enabled: boolean }[] = [
   { key: 'config', label: '配置管理', enabled: true },
@@ -140,6 +141,10 @@ export function renderApp(store: Store, root: HTMLElement): void {
     const draftMarkerText = draft ? ' ● 未保存' : '';
     let html = `<div class="section-title">编辑配置 · ${escapeHtml(config.activityKey || '(未命名)')}<span id="draftMarker" style="color:var(--color-warning);font-size:12px;">${draftMarkerText}</span></div>`;
     for (const f of CSV_SCHEMA) {
+      if (f.key === 'recurrenceValue') {
+        html += `<div class="form-group"><label>recurrenceValue</label><div id="recurrenceWizardHost"></div></div>`;
+        continue;
+      }
       const draftVal = draft?.[f.key as keyof Config];
       const committedVal = (config as unknown as Record<string, string>)[f.key] ?? '';
       const val = draftVal ?? committedVal;
@@ -161,13 +166,26 @@ export function renderApp(store: Store, root: HTMLElement): void {
 
     formEl.innerHTML = html;
 
-    // 字段编辑 → 写草稿（不碰 committed，不入栈）
+    // 字段编辑 → 写草稿（input 事件实时写，不碰 committed，不入栈）
     formEl.querySelectorAll<HTMLInputElement>('input[data-field]').forEach((input) => {
-      input.addEventListener('change', () => {
+      input.addEventListener('input', () => {
         const field = input.dataset.field as keyof Config;
         store.dispatch({ type: 'DRAFT_EDIT', payload: { field, value: input.value } });
       });
     });
+
+    // 循环模式 wizard（recurrenceValue 不用 input，用受控插件 wizard）
+    const wizardHost = formEl.querySelector<HTMLElement>('#recurrenceWizardHost');
+    if (wizardHost) {
+      const draftNow = store.getState().editor.draft;
+      const wizardVal = draftNow?.recurrenceValue ?? config.recurrenceValue;
+      const wizard = createRecurrenceWizard({
+        value: wizardVal,
+        onChange: (v) =>
+          store.dispatch({ type: 'DRAFT_EDIT', payload: { field: 'recurrenceValue', value: v } }),
+      });
+      wizardHost.appendChild(wizard.getElement());
+    }
 
     formEl.querySelector('#cancelBtn')?.addEventListener('click', () => {
       store.dispatch({ type: 'DRAFT_RESET' });
@@ -175,13 +193,9 @@ export function renderApp(store: Store, root: HTMLElement): void {
     });
 
     formEl.querySelector('#saveBtn')?.addEventListener('click', () => {
-      // 收集 DOM 当前值（编辑后未 change 的也一并存）
-      const patch: Record<string, string> = {};
-      formEl.querySelectorAll<HTMLInputElement>('input[data-field]').forEach((input) => {
-        const k = input.dataset.field!;
-        if (!CSV_SCHEMA.find((f) => f.key === k)?.derived) patch[k] = input.value;
-      });
-      const next: Config = { ...config, ...patch } as Config;
+      // 保存 = committed + 所有未应用草稿（input/wizard 都已实时写入 draft）
+      const draftNow = store.getState().editor.draft ?? {};
+      const next: Config = { ...config, ...draftNow } as Config;
       store.dispatch({ type: 'CONFIG_SAVE', payload: next });
       renderForm();
     });
