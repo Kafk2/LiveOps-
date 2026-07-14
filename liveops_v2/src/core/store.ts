@@ -54,6 +54,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         configs: { ...state.configs, [config.id]: config },
         configIds: exists ? state.configIds : [...state.configIds, config.id],
+        editor: { draft: null },
       };
     }
     case 'CONFIG_DELETE': {
@@ -95,21 +96,19 @@ export function reducer(state: AppState, action: Action): AppState {
         nextConfigs[c.id] = c;
         nextIds.push(c.id);
       }
-      return { ...state, configs: nextConfigs, configIds: nextIds };
+      return { ...state, configs: nextConfigs, configIds: nextIds, editor: { draft: null } };
     }
-    case 'CONFIG_UPDATE_FIELD': {
-      // 细粒度字段编辑（oninput），不入栈
-      const { id, field, value } = action.payload as {
-        id: string;
-        field: keyof Config;
-        value: string;
-      };
-      const cur = state.configs[id];
-      if (cur == null || cur[field] === value) return state;
-      return {
-        ...state,
-        configs: { ...state.configs, [id]: { ...cur, [field]: value } },
-      };
+    case 'DRAFT_EDIT': {
+      // 草稿字段编辑：只写 editor.draft，不碰 committed configs，不入栈
+      const { field, value } = action.payload as { field: keyof Config; value: string };
+      const draft = state.editor.draft ? { ...state.editor.draft } : {};
+      if (draft[field] === value) return state;
+      draft[field] = value;
+      return { ...state, editor: { draft } };
+    }
+    case 'DRAFT_RESET': {
+      if (state.editor.draft === null) return state;
+      return { ...state, editor: { draft: null } };
     }
     case 'SETTINGS_PATCH': {
       const patch = action.payload as Partial<AppState['settings']>;
@@ -128,7 +127,12 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case 'UI_PATCH': {
       const patch = action.payload as Partial<AppState['ui']>;
-      return { ...state, ui: { ...state.ui, ...patch } };
+      const next: AppState = { ...state, ui: { ...state.ui, ...patch } };
+      // 切换选中配置时清空草稿，避免上一个配置的未应用编辑残留
+      if (patch.selectedConfigId !== undefined) {
+        next.editor = { draft: null };
+      }
+      return next;
     }
     case 'HISTORY_RESTORE': {
       // history 回放（undo/redo），skipHistory
@@ -138,7 +142,7 @@ export function reducer(state: AppState, action: Action): AppState {
       };
       if (scope === 'config') {
         const s = snapshot as { configs: Record<string, Config>; configIds: string[] };
-        return { ...state, configs: s.configs, configIds: s.configIds };
+        return { ...state, configs: s.configs, configIds: s.configIds, editor: { draft: null } };
       }
       const s = snapshot as AppState['settings']['paramsSchemas'];
       return { ...state, settings: { ...state.settings, paramsSchemas: s } };

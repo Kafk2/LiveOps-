@@ -34,6 +34,7 @@ const initialState: AppState = {
     selectedConfigId: null,
     timeline: { sliderPos: 0.625, scrollLeft: 0, showStopped: false, rowHeight: 29 },
   },
+  editor: { draft: null },
 };
 
 const store = createStore(initialState);

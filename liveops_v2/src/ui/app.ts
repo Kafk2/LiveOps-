@@ -21,12 +21,13 @@ import { isEnabled, Config, TabKey } from '@/core/types';
 import { CSV_SCHEMA } from '@/schema/csv-schema';
 import { createEmptyConfig, copyConfig } from '@/model/config';
 import { encodeConfigs } from '@/services/csv-codec';
+import { renderTimeline } from '@/ui/timeline';
 
 const TABS: { key: TabKey; label: string; enabled: boolean }[] = [
   { key: 'config', label: '配置管理', enabled: true },
   { key: 'dependency', label: '依赖关系', enabled: false },
   { key: 'mutex', label: '互斥组', enabled: false },
-  { key: 'timeline', label: '时间轴', enabled: false },
+  { key: 'timeline', label: '时间轴', enabled: true },
   { key: 'compare', label: '版本对比', enabled: false },
   { key: 'schema', label: 'Schema 编辑', enabled: false },
 ];
@@ -54,9 +55,12 @@ export function renderApp(store: Store, root: HTMLElement): void {
             }" data-tab="${t.key}"${t.enabled ? '' : ' disabled'}>${t.label}</button>`,
         ).join('')}
       </nav>
-      <main class="main-content" id="main">
-        <section class="config-list" id="configList"></section>
-        <section class="config-form" id="configForm"></section>
+      <main id="main">
+        <div id="configTab" class="main-content">
+          <section class="config-list" id="configList"></section>
+          <section class="config-form" id="configForm"></section>
+        </div>
+        <div id="timelineTab" style="display:none;padding:20px;"></div>
       </main>
       <div id="exportArea" style="margin-top:16px;"></div>
     </div>
@@ -132,15 +136,24 @@ export function renderApp(store: Store, root: HTMLElement): void {
       return;
     }
 
-    let html = `<div class="section-title">编辑配置 · ${escapeHtml(config.activityKey || '(未命名)')}</div>`;
+    const draft = store.getState().editor.draft;
+    const draftMarkerText = draft ? ' ● 未保存' : '';
+    let html = `<div class="section-title">编辑配置 · ${escapeHtml(config.activityKey || '(未命名)')}<span id="draftMarker" style="color:var(--color-warning);font-size:12px;">${draftMarkerText}</span></div>`;
     for (const f of CSV_SCHEMA) {
-      const val = (config as unknown as Record<string, string>)[f.key] ?? '';
+      const draftVal = draft?.[f.key as keyof Config];
+      const committedVal = (config as unknown as Record<string, string>)[f.key] ?? '';
+      const val = draftVal ?? committedVal;
       const readonly = f.derived ? 'readonly style="background:#f5f5f5;"' : '';
       const req = f.required ? ' <span style="color:var(--color-danger)">*</span>' : '';
-      html += `<div class="form-group"><label>${escapeHtml(f.key)}${req}</label><input data-field="${escapeHtml(f.key)}" value="${escapeHtml(val)}" ${readonly}></div>`;
+      const dirty =
+        draftVal !== undefined && draftVal !== committedVal
+          ? ' style="border-color:var(--color-warning);"'
+          : '';
+      html += `<div class="form-group"><label>${escapeHtml(f.key)}${req}</label><input data-field="${escapeHtml(f.key)}" value="${escapeHtml(val)}" ${readonly}${dirty}></div>`;
     }
     html += `<div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-success btn-sm" id="saveBtn">💾 保存（入撤销栈）</button>
+      <button class="btn btn-secondary btn-sm" id="cancelBtn">取消（丢弃草稿）</button>
       <button class="btn btn-secondary btn-sm" id="copyBtn">复制</button>
       <button class="btn btn-danger btn-sm" id="delBtn">删除</button>
       <button class="btn btn-secondary btn-sm" id="exportBtn">导出 CSV</button>
@@ -148,15 +161,17 @@ export function renderApp(store: Store, root: HTMLElement): void {
 
     formEl.innerHTML = html;
 
-    // 字段编辑 → 细粒度 dispatch（不入栈）
+    // 字段编辑 → 写草稿（不碰 committed，不入栈）
     formEl.querySelectorAll<HTMLInputElement>('input[data-field]').forEach((input) => {
       input.addEventListener('change', () => {
         const field = input.dataset.field as keyof Config;
-        store.dispatch({
-          type: 'CONFIG_UPDATE_FIELD',
-          payload: { id: config.id, field, value: input.value },
-        });
+        store.dispatch({ type: 'DRAFT_EDIT', payload: { field, value: input.value } });
       });
+    });
+
+    formEl.querySelector('#cancelBtn')?.addEventListener('click', () => {
+      store.dispatch({ type: 'DRAFT_RESET' });
+      renderForm();
     });
 
     formEl.querySelector('#saveBtn')?.addEventListener('click', () => {
@@ -168,6 +183,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
       });
       const next: Config = { ...config, ...patch } as Config;
       store.dispatch({ type: 'CONFIG_SAVE', payload: next });
+      renderForm();
     });
 
     formEl.querySelector('#copyBtn')?.addEventListener('click', () => {
@@ -192,9 +208,40 @@ export function renderApp(store: Store, root: HTMLElement): void {
   renderList();
   renderForm();
 
+  // ---- tab 路由（config / timeline）----
+  const navEl = root.querySelector('#navTabs') as HTMLElement;
+  const configTabEl = root.querySelector('#configTab') as HTMLElement;
+  const timelineTabEl = root.querySelector('#timelineTab') as HTMLElement;
+
+  function syncTabs(): void {
+    const active = store.getState().ui.activeTab;
+    navEl.querySelectorAll<HTMLElement>('.nav-tab').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.tab === active);
+    });
+    configTabEl.style.display = active === 'config' ? '' : 'none';
+    timelineTabEl.style.display = active === 'timeline' ? '' : 'none';
+  }
+  navEl.querySelectorAll<HTMLButtonElement>('.nav-tab').forEach((btn) => {
+    if (btn.disabled) return;
+    btn.addEventListener('click', () => {
+      store.dispatch({
+        type: 'UI_PATCH',
+        payload: { activeTab: btn.dataset.tab as TabKey },
+      });
+    });
+  });
+  syncTabs();
+  renderTimeline(store, timelineTabEl);
+
   // 订阅：configsArray 变 → 列表刷新；selectedConfigId 变 → 表单刷新
   store.subscribe(selectConfigsArray, () => renderList());
   store.subscribe((s) => s.ui.selectedConfigId, () => renderForm());
+  store.subscribe((s) => s.ui.activeTab, syncTabs);
+  // draft 变 → 只更新 marker（不重渲染表单，避免失焦）
+  store.subscribe((s) => s.editor.draft, () => {
+    const m = root.querySelector('#draftMarker');
+    if (m) m.textContent = store.getState().editor.draft ? ' ● 未保存' : '';
+  });
   // history 状态变化 → status 刷新
   store.subscribeHistory(() => renderList());
 }

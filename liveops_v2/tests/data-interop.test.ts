@@ -6,7 +6,7 @@
  * 这些是 plan 阶段1 验证的核心：核心数据互通 + CSV 导出闭环。
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseCSV, decodeConfigs, encodeConfigs } from '@/services/csv-codec';
@@ -34,6 +34,7 @@ function emptyState(): AppState {
       selectedConfigId: null,
       timeline: { sliderPos: 0.625, scrollLeft: 0, showStopped: false, rowHeight: 29 },
     },
+    editor: { draft: null },
   };
 }
 
@@ -134,38 +135,39 @@ describe('parseRecurrenceValue 判定顺序（critical）', () => {
 });
 
 describe('store normalized by-id + structural sharing', () => {
-  it('updateConfig 只产生新 config 引用，其余不变', () => {
+  it('CONFIG_SAVE 只产生新 config 引用，其余不变（structural sharing）', () => {
     const store = createStore(emptyState());
-    // 注入 2 个 config
-    const a: Config = { ...v1Configs[0]!, id: 'a1' };
+    const a: Config = { ...v1Configs[0]!, id: 'a1', enabled: '1' };
     const b: Config = { ...v1Configs[1]!, id: 'b1' };
     store.dispatch({ type: 'CONFIGS_REPLACE', payload: [a, b], meta: { skipHistory: true } });
     const refB_before = store.getState().configs['b1'];
 
-    // 改 a1 一个字段
-    store.dispatch({
-      type: 'CONFIG_UPDATE_FIELD',
-      payload: { id: 'a1', field: 'enabled', value: '0' },
-    });
-    const refB_after = store.getState().configs['b1'];
-    // b1 引用不变（structural sharing）
-    expect(refB_after).toBe(refB_before);
-    // a1 引用变了
+    // 保存 a1（改 enabled），b1 引用应不变
+    store.dispatch({ type: 'CONFIG_SAVE', payload: { ...a, enabled: '0' } });
+    expect(store.getState().configs['b1']).toBe(refB_before);
     expect(store.getState().configs['a1']!.enabled).toBe('0');
   });
 
-  it('CONFIG_UPDATE_FIELD 改 store 但不入栈（实时预览用，表单编辑应用草稿）', () => {
+  it('DRAFT_EDIT 写草稿不改 committed，不入栈', () => {
     const store = createStore(emptyState());
     const a: Config = { ...v1Configs[0]!, id: 'a1', enabled: '1' };
     store.dispatch({ type: 'CONFIGS_REPLACE', payload: [a], meta: { skipHistory: true } });
     expect(store.canUndo('config')).toBe(false);
 
-    store.dispatch({
-      type: 'CONFIG_UPDATE_FIELD',
-      payload: { id: 'a1', field: 'enabled', value: '0' },
-    });
+    store.dispatch({ type: 'DRAFT_EDIT', payload: { field: 'enabled', value: '0' } });
     expect(store.canUndo('config')).toBe(false); // 不入栈
-    expect(store.getState().configs['a1']!.enabled).toBe('0'); // 但 store 已实时更新
+    expect(store.getState().configs['a1']!.enabled).toBe('1'); // committed 不变
+    expect(store.getState().editor.draft?.enabled).toBe('0'); // draft 更新
+  });
+
+  it('DRAFT_RESET 清草稿', () => {
+    const store = createStore(emptyState());
+    const a: Config = { ...v1Configs[0]!, id: 'a1', enabled: '1' };
+    store.dispatch({ type: 'CONFIGS_REPLACE', payload: [a], meta: { skipHistory: true } });
+    store.dispatch({ type: 'DRAFT_EDIT', payload: { field: 'enabled', value: '0' } });
+    expect(store.getState().editor.draft?.enabled).toBe('0');
+    store.dispatch({ type: 'DRAFT_RESET' });
+    expect(store.getState().editor.draft).toBeNull();
   });
 
   it('CONFIG_SAVE 入 history，undo 还原到上次 commit', () => {

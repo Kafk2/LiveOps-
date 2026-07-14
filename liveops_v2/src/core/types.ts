@@ -158,11 +158,17 @@ export interface TimelineUIState {
   rowHeight: number;
 }
 
+/** 编辑器草稿：未应用的字段覆盖，用于时间轴未保存预览（虚线/半透明） */
+export interface EditorState {
+  draft: Partial<Config> | null;
+}
+
 export interface AppState {
   configs: Record<string, Config>;
   configIds: string[]; // 保序
   settings: Settings;
   ui: UIState;
+  editor: EditorState;
 }
 
 // ============================================================================
@@ -175,8 +181,10 @@ export type ActionType =
   | 'CONFIG_DELETE'
   | 'CONFIG_COPY'
   | 'CONFIGS_REPLACE' // 批量导入 / GitHub pull（skipHistory）
-  // config 字段编辑（细粒度，不入栈）
-  | 'CONFIG_UPDATE_FIELD'
+  // 草稿编辑：不写 committed configs，只更新 editor.draft（不入栈）
+  | 'DRAFT_EDIT'
+  | 'DRAFT_RESET'
+  | 'DRAFT_COMMIT' // 草稿→committed（内部转 CONFIG_SAVE，commit 点）
   // settings（dependency/mutex/uiSettings 编辑）
   | 'SETTINGS_PATCH'
   | 'SETTINGS_REPLACE' // GitHub pull（skipHistory）
