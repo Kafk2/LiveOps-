@@ -32,6 +32,8 @@ const initialState: AppState = {
   ui: {
     activeTab: 'config',
     selectedConfigId: null,
+    listSearch: '',
+    listSort: 'duration',
     timeline: { sliderPos: 0.625, scrollLeft: 0, showStopped: false, rowHeight: 29 },
   },
   editor: { draft: null },

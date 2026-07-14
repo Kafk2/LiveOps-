@@ -75,20 +75,51 @@ export function renderApp(store: Store, root: HTMLElement): void {
   const statusEl = root.querySelector('#status') as HTMLElement;
   const exportEl = root.querySelector('#exportArea') as HTMLElement;
 
-  // ---- 列表渲染 ----
+  // ---- 列表渲染（搜索/排序/折叠/discardUnsaved 守卫）----
   function renderList(): void {
     const state = store.getState();
-    const configs = selectConfigsArray(state);
     const metaMap = selectActivityMetaMap(state);
+    const search = state.ui.listSearch.toLowerCase().trim();
+    const sort = state.ui.listSort;
+    const collapsed = state.settings.uiSettings.typeGroupCollapsed;
 
-    statusEl.textContent = `已加载 ${configs.length} 条配置（撤销 ${store.canUndo('config') ? '✓' : '✗'} / 重做 ${store.canRedo('config') ? '✓' : '✗'}）`;
+    let configs = selectConfigsArray(state);
+    if (search) {
+      configs = configs.filter(
+        (c) =>
+          getActivityName(c, metaMap).toLowerCase().includes(search) ||
+          c.activityKey.toLowerCase().includes(search),
+      );
+    }
+
+    statusEl.textContent = `已加载 ${configs.length} 条配置${search ? '（搜索结果）' : ''}（撤销 ${store.canUndo('config') ? '✓' : '✗'} / 重做 ${store.canRedo('config') ? '✓' : '✗'}）`;
+
+    let html = `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
+      <input id="searchInput" type="text" placeholder="搜索活动名称/key（回车）" value="${escapeHtml(state.ui.listSearch)}" style="flex:1;min-width:140px;padding:6px 8px;border:1px solid var(--color-border);border-radius:4px;">
+      <select id="sortSelect" style="padding:6px;border:1px solid var(--color-border);border-radius:4px;">
+        <option value="duration"${sort === 'duration' ? ' selected' : ''}>按持续时间</option>
+        <option value="name"${sort === 'name' ? ' selected' : ''}>按名称</option>
+        <option value="date"${sort === 'date' ? ' selected' : ''}>按开始日期</option>
+        <option value="custom"${sort === 'custom' ? ' selected' : ''}>自定义</option>
+      </select>
+      <button class="btn btn-primary btn-sm" id="newBtn">+ 新建</button>
+    </div>`;
 
     if (configs.length === 0) {
-      listEl.innerHTML = '<div class="empty-state">暂无配置</div>';
+      html += `<div class="empty-state">${search ? '未找到匹配的配置' : '暂无配置'}</div>`;
+      listEl.innerHTML = html;
+      bindListControls();
       return;
     }
 
-    // 按 activityType 分组（activityMeta join）
+    if (sort !== 'custom') {
+      configs = [...configs].sort((a, b) => {
+        if (sort === 'duration') return (parseInt(b.duration, 10) || 0) - (parseInt(a.duration, 10) || 0);
+        if (sort === 'name') return getActivityName(a, metaMap).localeCompare(getActivityName(b, metaMap));
+        return (b.scheduleStartDate || '').localeCompare(a.scheduleStartDate || '');
+      });
+    }
+
     const groups = new Map<string, Config[]>();
     for (const c of configs) {
       const type = getActivityType(c, metaMap);
@@ -98,33 +129,64 @@ export function renderApp(store: Store, root: HTMLElement): void {
     }
 
     const selectedId = state.ui.selectedConfigId;
-    let html = `<button class="btn btn-primary btn-sm" id="newBtn" style="margin-bottom:12px;">+ 新建配置</button>`;
     for (const [type, items] of groups) {
-      html += `<div style="margin-top:12px;font-weight:600;color:var(--color-primary);border-bottom:2px solid var(--color-border);padding-bottom:4px;">${escapeHtml(type)}（${items.length}）</div>`;
-      html += '<table class="config-table"><tbody>';
-      for (const c of items) {
-        const active = c.id === selectedId ? ' active' : '';
-        const name = escapeHtml(getActivityName(c, metaMap));
-        const badge = isEnabled(c)
-          ? '<span class="status-badge status-enabled">启用</span>'
-          : '<span class="status-badge status-disabled">停用</span>';
-        html += `<tr class="config-row${active}" data-id="${escapeHtml(c.id)}"><td>${name}</td><td>${escapeHtml(c.activityKey)}</td><td>${escapeHtml(c.scheduleStartDate)}</td><td>${badge}</td></tr>`;
+      const isCollapsed = !!collapsed[type];
+      html += `<div class="type-group-header" data-type="${escapeHtml(type)}" style="display:flex;align-items:center;gap:6px;padding:8px 0;cursor:pointer;font-weight:600;color:var(--color-primary);border-bottom:2px solid var(--color-border);user-select:none;">
+        <span style="display:inline-block;transform:${isCollapsed ? '' : 'rotate(90deg)'};transition:transform 0.15s;">▶</span>
+        <span>${escapeHtml(type)}（${items.length}）</span>
+      </div>`;
+      if (!isCollapsed) {
+        html += '<table class="config-table"><tbody>';
+        for (const c of items) {
+          const active = c.id === selectedId ? ' active' : '';
+          const name = escapeHtml(getActivityName(c, metaMap));
+          const badge = isEnabled(c)
+            ? '<span class="status-badge status-enabled">启用</span>'
+            : '<span class="status-badge status-disabled">停用</span>';
+          html += `<tr class="config-row${active}" data-id="${escapeHtml(c.id)}"><td>${name}</td><td>${escapeHtml(c.activityKey)}</td><td>${escapeHtml(c.scheduleStartDate)}</td><td>${badge}</td></tr>`;
+        }
+        html += '</tbody></table>';
       }
-      html += '</tbody></table>';
     }
     listEl.innerHTML = html;
+    bindListControls();
+  }
 
+  function bindListControls(): void {
+    // discardUnsavedIfNeeded 守卫：切换/新建前若有草稿需确认
+    const draftGuard = (): boolean =>
+      !store.getState().editor.draft || confirm('有未保存的修改，丢弃？');
+
+    listEl.querySelector('#searchInput')?.addEventListener('change', (e) => {
+      store.dispatch({ type: 'UI_PATCH', payload: { listSearch: (e.target as HTMLInputElement).value } });
+    });
+    listEl.querySelector('#sortSelect')?.addEventListener('change', (e) => {
+      store.dispatch({
+        type: 'UI_PATCH',
+        payload: { listSort: (e.target as HTMLSelectElement).value as 'duration' | 'name' | 'date' | 'custom' },
+      });
+    });
     listEl.querySelector('#newBtn')?.addEventListener('click', () => {
+      if (!draftGuard()) return;
       const c = createEmptyConfig();
       store.dispatch({ type: 'CONFIG_SAVE', payload: c });
       store.dispatch({ type: 'UI_PATCH', payload: { selectedConfigId: c.id } });
     });
+    listEl.querySelectorAll<HTMLElement>('.type-group-header').forEach((h) => {
+      h.addEventListener('click', () => {
+        const type = h.dataset.type!;
+        const s = store.getState().settings.uiSettings;
+        const cur = { ...s.typeGroupCollapsed, [type]: !s.typeGroupCollapsed[type] };
+        store.dispatch({
+          type: 'SETTINGS_PATCH',
+          payload: { uiSettings: { ...s, typeGroupCollapsed: cur } },
+        });
+      });
+    });
     listEl.querySelectorAll<HTMLElement>('.config-row').forEach((row) => {
       row.addEventListener('click', () => {
-        store.dispatch({
-          type: 'UI_PATCH',
-          payload: { selectedConfigId: row.dataset.id ?? null },
-        });
+        if (!draftGuard()) return;
+        store.dispatch({ type: 'UI_PATCH', payload: { selectedConfigId: row.dataset.id ?? null } });
       });
     });
   }
@@ -310,6 +372,9 @@ export function renderApp(store: Store, root: HTMLElement): void {
 
   // 订阅：configsArray 变 → 列表刷新；selectedConfigId 变 → 表单刷新
   store.subscribe(selectConfigsArray, () => renderList());
+  store.subscribe((s) => s.ui.listSearch, renderList);
+  store.subscribe((s) => s.ui.listSort, renderList);
+  store.subscribe((s) => s.settings.uiSettings.typeGroupCollapsed, renderList);
   store.subscribe((s) => s.ui.selectedConfigId, () => renderForm());
   store.subscribe((s) => s.ui.activeTab, syncTabs);
   // draft 变 → 只更新 marker（不重渲染表单，避免失焦）

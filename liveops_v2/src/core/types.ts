@@ -149,6 +149,8 @@ export type TabKey = 'config' | 'dependency' | 'mutex' | 'timeline' | 'compare' 
 export interface UIState {
   activeTab: TabKey;
   selectedConfigId: string | null;
+  listSearch: string;
+  listSort: 'duration' | 'name' | 'date' | 'custom';
   /** 时间轴 UI 临时态（仅本地，不同步） */
   timeline: TimelineUIState;
 }
