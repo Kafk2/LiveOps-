@@ -11,7 +11,7 @@ import type { ParamsFieldDef, ParamsSchemas } from '@/core/types';
 import { selectSettings } from '@/core/selectors';
 import { validateParamsSchema } from '@/schema/params-schema';
 
-const FIELD_TYPES = ['text', 'number', 'boolean', 'date', 'time', 'enum', 'json'];
+const FIELD_TYPES = ['text', 'number', 'boolean', 'date', 'time'];
 
 function escapeHtml(s: string): string {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
