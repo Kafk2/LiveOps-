@@ -1,0 +1,95 @@
+/* layout.css — 布局（container/header/nav-tabs/main-content） */
+
+.container {
+  max-width: 3300px;
+  width: 100%;
+  margin: 0 auto;
+  padding: var(--space-xl);
+}
+
+.header {
+  background: var(--color-bg-card);
+  padding: var(--space-xl);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-xl);
+  box-shadow: var(--shadow-md);
+}
+
+.header h1 {
+  margin-bottom: var(--space-lg);
+  font-size: 18px;
+}
+
+.header .status {
+  font-size: var(--font-sm);
+  color: var(--color-text-secondary);
+}
+
+.nav-tabs {
+  display: flex;
+  gap: var(--space-sm);
+  border-bottom: 2px solid var(--color-border);
+}
+
+.nav-tab {
+  padding: var(--space-lg) 24px;
+  background: var(--color-bg);
+  border: none;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  cursor: pointer;
+  font-size: var(--font-lg);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  transition: all 0.2s;
+}
+
+.nav-tab:hover {
+  background: #e0e0e0;
+}
+
+.nav-tab.active {
+  background: var(--color-primary);
+  color: white;
+}
+
+.tab-content {
+  display: none;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+.main-content {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: var(--space-xl);
+  max-width: 100%;
+  min-width: 0;
+}
+
+.main-content.full-width {
+  grid-template-columns: 1fr;
+}
+
+.config-list,
+.config-form {
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+  box-shadow: var(--shadow-md);
+}
+
+.config-form {
+  padding: var(--space-md);
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px;
+  color: var(--color-text-tertiary);
+}

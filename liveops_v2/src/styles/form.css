@@ -1,0 +1,134 @@
+/* form.css — 表单与按钮 */
+
+.form-group {
+  margin-bottom: var(--space-md);
+}
+
+.form-group label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: var(--space-xs);
+  color: #555;
+  font-size: var(--font-md);
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 6px var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-md);
+  font-family: inherit;
+}
+
+.form-group .hint {
+  font-size: var(--font-xs);
+  color: var(--color-text-tertiary);
+  margin-top: 2px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+}
+
+.section-title {
+  font-size: var(--font-lg);
+  font-weight: 600;
+  margin-bottom: var(--space-md);
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--color-primary);
+}
+
+.btn {
+  padding: 10px var(--space-xl);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-lg);
+  font-family: inherit;
+}
+
+.btn-primary {
+  background: var(--color-primary);
+  color: white;
+}
+
+.btn-success {
+  background: var(--color-success);
+  color: white;
+}
+
+.btn-secondary {
+  background: #e0e0e0;
+  color: var(--color-text);
+}
+
+.btn-danger {
+  background: var(--color-danger);
+  color: white;
+}
+
+.btn-sm {
+  padding: 6px var(--space-md);
+  font-size: var(--font-sm);
+}
+
+/* 配置列表表格 */
+.config-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.config-table th {
+  background: var(--color-bg);
+  padding: var(--space-md) var(--space-sm);
+  text-align: left;
+  font-weight: 600;
+  font-size: var(--font-md);
+  border-bottom: 2px solid var(--color-border);
+}
+
+.config-table td {
+  padding: 10px var(--space-sm);
+  border-bottom: 1px solid var(--color-border-light);
+  font-size: var(--font-md);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.config-table tr {
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.config-table tr:hover {
+  background: var(--color-bg-hover);
+}
+
+.config-table tr.active {
+  background: var(--color-bg-active);
+}
+
+.status-badge {
+  display: inline-block;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  font-weight: 500;
+}
+
+.status-enabled {
+  background: #e8f5e9;
+  color: var(--color-success);
+}
+
+.status-disabled {
+  background: #ffebee;
+  color: var(--color-danger);
+}
