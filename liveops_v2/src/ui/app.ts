@@ -40,11 +40,11 @@ import { createRecurrenceWizard } from '@/ui/recurrence-wizard';
 import { renderSchemaTab } from '@/ui/schema-tab';
 import { resolveParamsSchema } from '@/schema/params-schema';
 import { renderDependencyTab, renderMutexTab } from '@/ui/relation-tabs';
-import { renderActivityTypeTab } from '@/ui/activity-type-tab';
+import { renderActivityMgmtTab } from '@/ui/activity-management-tab';
 
 const TABS: { key: TabKey; label: string; enabled: boolean }[] = [
   { key: 'config', label: '配置管理', enabled: true },
-  { key: 'activityType', label: '活动类型', enabled: true },
+  { key: 'activityMgmt', label: '活动管理', enabled: true },
   { key: 'dependency', label: '依赖关系', enabled: true },
   { key: 'mutex', label: '互斥组', enabled: true },
   { key: 'timeline', label: '时间轴', enabled: true },
@@ -116,7 +116,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
         <div id="schemaTab" style="display:none;"></div>
         <div id="dependencyTab" style="display:none;"></div>
         <div id="mutexTab" style="display:none;"></div>
-        <div id="activityTypeTab" style="display:none;padding:20px;"></div>
+        <div id="activityMgmtTab" style="display:none;padding:20px;"></div>
       </main>
       <div id="exportArea" style="margin-top:16px;"></div>
     </div>
@@ -131,6 +131,8 @@ export function renderApp(store: Store, root: HTMLElement): void {
   let rowDragId: string | null = null;
   // 颜色选择器"点击外部关闭"的 document 监听（renderForm 重渲染前先移除旧的，避免泄漏）
   let docClickHandler: ((e: MouseEvent) => void) | null = null;
+  // activityKey 搜索下拉"点击外部关闭"的 document 监听
+  let akDocClickHandler: ((e: MouseEvent) => void) | null = null;
 
   // ---- 列表渲染（搜索/排序/折叠/discardUnsaved 守卫）----
   function renderList(): void {
@@ -400,7 +402,8 @@ export function renderApp(store: Store, root: HTMLElement): void {
     html += '<div class="edit-grid">';
     // ===== 左列：基础信息 =====
     html += '<div class="edit-col">';
-    html += inputField('activityKey', '活动Key', config, draft, { required: true });
+    // activityKey 从已注册的 activityMeta 中搜索选择（不再手填）
+    html += `<div class="form-group"><label>活动Key <span style="color:var(--color-danger)">*</span></label><div class="combobox" id="activityKeyCombo"><input type="text" id="activityKeySearch" value="${escapeHtml(merged.activityKey)}" placeholder="搜索或选择活动 Key" autocomplete="off"><div class="combobox-list" id="activityKeyList"></div></div><div class="hint">从「活动管理」页签注册的活动 Key 中选择</div></div>`;
     html += inputField('dependency', '依赖活动', config, draft, { readonly: true });
     html += inputField('mutex', '互斥活动', config, draft, { readonly: true });
     // 活动名称/描述（来自 activityMeta join，编辑写 activityMeta）；活动类型只读（管理移至「活动类型」页签）
@@ -432,6 +435,46 @@ export function renderApp(store: Store, root: HTMLElement): void {
         store.dispatch({ type: 'DRAFT_EDIT', payload: { field, value: input.value } });
       });
     });
+
+    // activityKey 搜索选择（combobox）：从已注册 activityMeta 过滤，点选写入草稿
+    const akSearch = formEl.querySelector<HTMLInputElement>('#activityKeySearch');
+    const akList = formEl.querySelector<HTMLElement>('#activityKeyList');
+    const akCombo = formEl.querySelector<HTMLElement>('#activityKeyCombo');
+    const refreshAkList = (filter: string) => {
+      if (!akList) return;
+      const keys = store.getState().settings.activityMeta.map((m) => m.activityKey);
+      const f = filter.toLowerCase().trim();
+      const matches = keys.filter((k) => !f || k.toLowerCase().includes(f)).sort().slice(0, 50);
+      akList.innerHTML = matches.length
+        ? matches
+            .map((k) => `<div class="combobox-item" data-key="${escapeHtml(k)}">${escapeHtml(k)}</div>`)
+            .join('')
+        : '<div class="combobox-empty">无匹配活动 Key</div>';
+    };
+    akSearch?.addEventListener('focus', () => {
+      refreshAkList(akSearch.value);
+      akList?.classList.add('open');
+    });
+    akSearch?.addEventListener('input', () => {
+      store.dispatch({ type: 'DRAFT_EDIT', payload: { field: 'activityKey', value: akSearch.value } });
+      refreshAkList(akSearch.value);
+      akList?.classList.add('open');
+    });
+    // mousedown（而非 click）防止 input 先失焦导致 list 消失
+    akList?.addEventListener('mousedown', (e) => {
+      const item = (e.target as HTMLElement).closest('.combobox-item') as HTMLElement | null;
+      if (!item) return;
+      e.preventDefault();
+      const k = item.dataset.key!;
+      if (akSearch) akSearch.value = k;
+      store.dispatch({ type: 'DRAFT_EDIT', payload: { field: 'activityKey', value: k } });
+      akList.classList.remove('open');
+    });
+    if (akDocClickHandler) document.removeEventListener('click', akDocClickHandler);
+    akDocClickHandler = (e: MouseEvent) => {
+      if (akCombo && !akCombo.contains(e.target as Node)) akList?.classList.remove('open');
+    };
+    document.addEventListener('click', akDocClickHandler);
 
     // 启用开关 → draft.enabled（'1'/'0'）+ label 实时更新
     const enabledToggle = formEl.querySelector<HTMLInputElement>('#enabledToggle');
@@ -813,7 +856,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
   const schemaTabEl = root.querySelector('#schemaTab') as HTMLElement;
   const dependencyTabEl = root.querySelector('#dependencyTab') as HTMLElement;
   const mutexTabEl = root.querySelector('#mutexTab') as HTMLElement;
-  const activityTypeTabEl = root.querySelector('#activityTypeTab') as HTMLElement;
+  const activityMgmtTabEl = root.querySelector('#activityMgmtTab') as HTMLElement;
 
   function syncTabs(): void {
     const active = store.getState().ui.activeTab;
@@ -825,7 +868,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
     schemaTabEl.style.display = active === 'schema' ? '' : 'none';
     dependencyTabEl.style.display = active === 'dependency' ? '' : 'none';
     mutexTabEl.style.display = active === 'mutex' ? '' : 'none';
-    activityTypeTabEl.style.display = active === 'activityType' ? '' : 'none';
+    activityMgmtTabEl.style.display = active === 'activityMgmt' ? '' : 'none';
   }
   navEl.querySelectorAll<HTMLButtonElement>('.nav-tab').forEach((btn) => {
     if (btn.disabled) return;
@@ -841,7 +884,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
   renderSchemaTab(store, schemaTabEl);
   renderDependencyTab(store, dependencyTabEl);
   renderMutexTab(store, mutexTabEl);
-  renderActivityTypeTab(store, activityTypeTabEl);
+  renderActivityMgmtTab(store, activityMgmtTabEl);
 
   // 订阅：configsArray 变 → 列表刷新；selectedConfigId 变 → 表单刷新
   store.subscribe(selectConfigsArray, () => renderList());

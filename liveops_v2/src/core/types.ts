@@ -138,7 +138,7 @@ export interface Settings {
 // AppState —— normalized by-id state
 // ============================================================================
 
-export type TabKey = 'config' | 'activityType' | 'dependency' | 'mutex' | 'timeline' | 'compare' | 'schema' | 'version';
+export type TabKey = 'config' | 'activityMgmt' | 'dependency' | 'mutex' | 'timeline' | 'compare' | 'schema' | 'version';
 
 export interface UIState {
   activeTab: TabKey;

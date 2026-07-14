@@ -395,95 +395,148 @@
   padding: 3px 6px;
 }
 
-/* ===== 活动类型管理页签 ===== */
-.at-toolbar {
+/* ===== 活动管理页签 ===== */
+.am-toolbar {
   display: flex;
   align-items: center;
   gap: 12px;
   margin-bottom: var(--space-lg);
 }
 
-.at-hint {
+.am-hint {
   font-size: var(--font-sm);
   color: var(--color-text-tertiary);
 }
 
-.at-cards {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
+.am-table {
+  width: 100%;
+  border-collapse: collapse;
 }
 
-.at-card {
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-md);
+.am-table th {
+  background: var(--color-bg);
+  padding: var(--space-sm);
+  text-align: left;
+  font-size: var(--font-sm);
+  border-bottom: 2px solid var(--color-border);
 }
 
-.at-card-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  margin-bottom: var(--space-sm);
-  padding-bottom: var(--space-sm);
-  border-bottom: 1px solid var(--color-border-light);
-}
-
-.at-card-head .at-type-name {
-  flex: 0 0 auto;
-  width: 180px;
+.am-table td {
   padding: 6px var(--space-sm);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  font-weight: 600;
+  border-bottom: 1px solid var(--color-border-light);
   font-size: var(--font-md);
 }
 
-.at-count {
-  flex: 1;
-  font-size: var(--font-sm);
-  color: var(--color-text-secondary);
+.am-key {
+  font-family: monospace;
+  font-weight: 600;
 }
 
-.at-key-zone {
-  min-height: 44px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: var(--space-sm);
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg);
-  transition: background 0.15s, border-color 0.15s;
-}
-
-.at-key-zone.drop-hover {
-  background: #e6f4ff;
-  border-color: var(--color-primary);
-}
-
-.at-key {
-  padding: 4px 10px;
-  background: white;
+.am-name,
+.am-type {
+  width: 100%;
+  padding: 4px 6px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   font-size: var(--font-sm);
-  cursor: grab;
-  user-select: none;
 }
 
-.at-key[draggable="true"]:active {
-  cursor: grabbing;
+.am-name {
+  width: 220px;
 }
 
-.at-key.dragging {
-  opacity: 0.35;
-  background: #fff7e6;
+.am-count {
+  text-align: center;
+  color: var(--color-text-secondary);
 }
 
-.at-key-empty {
+.am-empty {
+  text-align: center;
+  padding: 24px;
   color: var(--color-text-tertiary);
+}
+
+.am-section-title {
+  margin-top: var(--space-xl);
+  margin-bottom: var(--space-sm);
+  padding-bottom: 6px;
+  font-weight: 600;
+  color: var(--color-primary);
+  border-bottom: 2px solid var(--color-border);
+}
+
+.am-types {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.am-type-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.am-type-name {
+  width: 180px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+}
+
+.am-type-label {
+  flex: 1;
+  font-size: var(--font-xs);
+  color: var(--color-text-tertiary);
+}
+
+/* activityKey 搜索选择（combobox） */
+.combobox {
+  position: relative;
+}
+
+.combobox input {
+  width: 100%;
+  padding: 6px var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-md);
+}
+
+.combobox-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  display: none;
+  max-height: 240px;
+  overflow-y: auto;
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  z-index: 50;
+}
+
+.combobox-list.open {
+  display: block;
+}
+
+.combobox-item {
+  padding: 5px var(--space-sm);
   font-size: var(--font-sm);
+  cursor: pointer;
+  font-family: monospace;
+}
+
+.combobox-item:hover {
+  background: var(--color-bg-hover);
+}
+
+.combobox-empty {
+  padding: 8px var(--space-sm);
+  font-size: var(--font-sm);
+  color: var(--color-text-tertiary);
   font-style: italic;
 }
