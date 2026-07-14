@@ -25,11 +25,12 @@ import { renderTimeline } from '@/ui/timeline';
 import { createRecurrenceWizard } from '@/ui/recurrence-wizard';
 import { renderSchemaTab } from '@/ui/schema-tab';
 import { resolveParamsSchema } from '@/schema/params-schema';
+import { renderDependencyTab, renderMutexTab } from '@/ui/relation-tabs';
 
 const TABS: { key: TabKey; label: string; enabled: boolean }[] = [
   { key: 'config', label: '配置管理', enabled: true },
-  { key: 'dependency', label: '依赖关系', enabled: false },
-  { key: 'mutex', label: '互斥组', enabled: false },
+  { key: 'dependency', label: '依赖关系', enabled: true },
+  { key: 'mutex', label: '互斥组', enabled: true },
   { key: 'timeline', label: '时间轴', enabled: true },
   { key: 'compare', label: '版本对比', enabled: false },
   { key: 'schema', label: 'Schema 编辑', enabled: true },
@@ -65,6 +66,8 @@ export function renderApp(store: Store, root: HTMLElement): void {
         </div>
         <div id="timelineTab" style="display:none;padding:20px;"></div>
         <div id="schemaTab" style="display:none;"></div>
+        <div id="dependencyTab" style="display:none;"></div>
+        <div id="mutexTab" style="display:none;"></div>
       </main>
       <div id="exportArea" style="margin-top:16px;"></div>
     </div>
@@ -347,6 +350,8 @@ export function renderApp(store: Store, root: HTMLElement): void {
   const configTabEl = root.querySelector('#configTab') as HTMLElement;
   const timelineTabEl = root.querySelector('#timelineTab') as HTMLElement;
   const schemaTabEl = root.querySelector('#schemaTab') as HTMLElement;
+  const dependencyTabEl = root.querySelector('#dependencyTab') as HTMLElement;
+  const mutexTabEl = root.querySelector('#mutexTab') as HTMLElement;
 
   function syncTabs(): void {
     const active = store.getState().ui.activeTab;
@@ -356,6 +361,8 @@ export function renderApp(store: Store, root: HTMLElement): void {
     configTabEl.style.display = active === 'config' ? '' : 'none';
     timelineTabEl.style.display = active === 'timeline' ? '' : 'none';
     schemaTabEl.style.display = active === 'schema' ? '' : 'none';
+    dependencyTabEl.style.display = active === 'dependency' ? '' : 'none';
+    mutexTabEl.style.display = active === 'mutex' ? '' : 'none';
   }
   navEl.querySelectorAll<HTMLButtonElement>('.nav-tab').forEach((btn) => {
     if (btn.disabled) return;
@@ -369,6 +376,8 @@ export function renderApp(store: Store, root: HTMLElement): void {
   syncTabs();
   renderTimeline(store, timelineTabEl);
   renderSchemaTab(store, schemaTabEl);
+  renderDependencyTab(store, dependencyTabEl);
+  renderMutexTab(store, mutexTabEl);
 
   // 订阅：configsArray 变 → 列表刷新；selectedConfigId 变 → 表单刷新
   store.subscribe(selectConfigsArray, () => renderList());
