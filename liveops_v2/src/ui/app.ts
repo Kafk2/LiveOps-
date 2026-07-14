@@ -19,7 +19,9 @@ import {
 } from '@/core/selectors';
 import { isEnabled, Config, TabKey } from '@/core/types';
 import { CSV_SCHEMA } from '@/schema/csv-schema';
+import { runNormalizers } from '@/schema/validators';
 import { createEmptyConfig, copyConfig } from '@/model/config';
+import { parseRecurrenceValue } from '@/model/recurrence/builtin';
 import { encodeConfigs, parseCSV, decodeConfigs } from '@/services/csv-codec';
 import { renderTimeline } from '@/ui/timeline';
 import { createRecurrenceWizard } from '@/ui/recurrence-wizard';
@@ -42,6 +44,12 @@ function escapeHtml(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+/** weekly/biweekly 循环要求开始日期为周一（用于实时 hint + normalizer 触发条件） */
+function needsMonday(recurrenceValue: string): boolean {
+  const mode = parseRecurrenceValue(recurrenceValue);
+  return mode === 'weekly' || mode === 'biweekly';
 }
 
 export function renderApp(store: Store, root: HTMLElement): void {
@@ -77,6 +85,9 @@ export function renderApp(store: Store, root: HTMLElement): void {
   const formEl = root.querySelector('#configForm') as HTMLElement;
   const statusEl = root.querySelector('#status') as HTMLElement;
   const exportEl = root.querySelector('#exportArea') as HTMLElement;
+
+  // 行拖拽当前 dragId（闭包变量，dragstart 写入 / drop 读取 / dragend 清空）
+  let rowDragId: string | null = null;
 
   // ---- 列表渲染（搜索/排序/折叠/discardUnsaved 守卫）----
   function renderList(): void {
@@ -133,6 +144,21 @@ export function renderApp(store: Store, root: HTMLElement): void {
       else groups.set(type, [c]);
     }
 
+    // custom 排序：按 uiSettings.configOrder[type] 重排各组内顺序（v1 index.html:2639 语义）
+    if (sort === 'custom') {
+      const order = state.settings.uiSettings.configOrder;
+      for (const [type, items] of groups) {
+        const orderIds = order[type] ?? [];
+        items.sort((a, b) => {
+          let ia = orderIds.indexOf(a.id);
+          let ib = orderIds.indexOf(b.id);
+          if (ia < 0) ia = 99999;
+          if (ib < 0) ib = 99999;
+          return ia - ib;
+        });
+      }
+    }
+
     const selectedId = state.ui.selectedConfigId;
     for (const [type, items] of groups) {
       const isCollapsed = !!collapsed[type];
@@ -148,7 +174,11 @@ export function renderApp(store: Store, root: HTMLElement): void {
           const badge = isEnabled(c)
             ? '<span class="status-badge status-enabled">启用</span>'
             : '<span class="status-badge status-disabled">停用</span>';
-          html += `<tr class="config-row${active}" data-id="${escapeHtml(c.id)}"><td>${name}</td><td>${escapeHtml(c.activityKey)}</td><td>${escapeHtml(c.scheduleStartDate)}</td><td>${badge}</td></tr>`;
+          const dragAttrs =
+            sort === 'custom'
+              ? ' draggable="true"'
+              : '';
+          html += `<tr class="config-row${active}" data-id="${escapeHtml(c.id)}"${dragAttrs}><td>${name}</td><td>${escapeHtml(c.activityKey)}</td><td>${escapeHtml(c.scheduleStartDate)}</td><td>${badge}</td></tr>`;
         }
         html += '</tbody></table>';
       }
@@ -218,6 +248,69 @@ export function renderApp(store: Store, root: HTMLElement): void {
         store.dispatch({ type: 'UI_PATCH', payload: { selectedConfigId: row.dataset.id ?? null } });
       });
     });
+
+    // 行拖拽排序（仅 custom 模式下行带 draggable；drop 后写回 configOrder[type]）
+    listEl.querySelectorAll<HTMLElement>('.config-row[draggable="true"]').forEach((row) => {
+      row.addEventListener('dragstart', (e) => {
+        rowDragId = row.dataset.id ?? null;
+        if (!rowDragId || !e.dataTransfer) return;
+        e.dataTransfer.setData('text/plain', 'row:' + rowDragId);
+        e.dataTransfer.effectAllowed = 'move';
+        row.classList.add('dragging');
+      });
+      row.addEventListener('dragover', (e) => {
+        if (!rowDragId) return;
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+        if (row.dataset.id === rowDragId) return;
+        listEl
+          .querySelectorAll('.config-row.drop-above,.config-row.drop-below')
+          .forEach((el) => el.classList.remove('drop-above', 'drop-below'));
+        const rect = row.getBoundingClientRect();
+        const above = e.clientY < rect.top + rect.height / 2;
+        row.classList.add(above ? 'drop-above' : 'drop-below');
+      });
+      row.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const dragId = rowDragId;
+        rowDragId = null;
+        if (!dragId || !row.dataset.id || row.dataset.id === dragId) return;
+        const targetId = row.dataset.id;
+        const rect = row.getBoundingClientRect();
+        const insertBefore = e.clientY < rect.top + rect.height / 2;
+        // 从 DOM 读取该组当前渲染顺序作为基线（custom 下=configOrder，否则=sort 顺序）
+        const tbody = row.closest('tbody');
+        if (!tbody) return;
+        const baseIds = Array.from(tbody.querySelectorAll<HTMLTableRowElement>('tr[data-id]'))
+          .map((tr) => tr.dataset.id!)
+          .filter((id) => id !== dragId);
+        let idx = baseIds.indexOf(targetId);
+        if (idx < 0) idx = baseIds.length;
+        if (!insertBefore) idx++;
+        baseIds.splice(idx, 0, dragId);
+        // 写回 configOrder[type] 并切到 custom 排序
+        const st = store.getState();
+        const metaMap = selectActivityMetaMap(st);
+        const cfg = st.configs[dragId];
+        if (!cfg) return;
+        const type = getActivityType(cfg, metaMap);
+        const ui = st.settings.uiSettings;
+        store.dispatch({
+          type: 'SETTINGS_PATCH',
+          payload: { uiSettings: { ...ui, configOrder: { ...ui.configOrder, [type]: baseIds } } },
+        });
+        if (st.ui.listSort !== 'custom') {
+          store.dispatch({ type: 'UI_PATCH', payload: { listSort: 'custom' } });
+        }
+      });
+      row.addEventListener('dragend', () => {
+        rowDragId = null;
+        listEl
+          .querySelectorAll('.config-row.dragging,.config-row.drop-above,.config-row.drop-below')
+          .forEach((el) => el.classList.remove('dragging', 'drop-above', 'drop-below'));
+      });
+    });
   }
 
   // ---- 表单渲染（仅在 selectedConfigId 变化时重渲染，避免编辑失焦）----
@@ -252,7 +345,13 @@ export function renderApp(store: Store, root: HTMLElement): void {
         draftVal !== undefined && draftVal !== committedVal
           ? ' style="border-color:var(--color-warning);"'
           : '';
-      html += `<div class="form-group"><label>${escapeHtml(f.key)}${req}</label><input data-field="${escapeHtml(f.key)}" value="${escapeHtml(val)}" ${readonly}${dirty}></div>`;
+      // scheduleStartDate：weekly/biweekly 时显示周一要求 hint（随 recurrence 模式实时显隐）
+      const recurVal = draft?.recurrenceValue ?? config.recurrenceValue;
+      const hint =
+        f.key === 'scheduleStartDate'
+          ? `<div id="startDateHint" class="hint" style="${needsMonday(recurVal) ? 'color:var(--color-warning);' : 'display:none;'}">每周/双周循环要求开始日期为周一（保存时自动校正）</div>`
+          : '';
+      html += `<div class="form-group"><label>${escapeHtml(f.key)}${req}</label><input data-field="${escapeHtml(f.key)}" value="${escapeHtml(val)}" ${readonly}${dirty}>${hint}</div>`;
     }
     html += `<div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-success btn-sm" id="saveBtn">💾 保存（入撤销栈）</button>
@@ -357,7 +456,12 @@ export function renderApp(store: Store, root: HTMLElement): void {
         dependency: dep,
         mutex: JSON.stringify(mutexArr),
       } as Config;
-      store.dispatch({ type: 'CONFIG_SAVE', payload: next });
+      // 保存前跑 normalizer（周一校正等自动改值，非阻断）
+      const { config: normalized, messages } = runNormalizers(next);
+      if (messages.length > 0) {
+        alert(messages.join('\n'));
+      }
+      store.dispatch({ type: 'CONFIG_SAVE', payload: normalized });
       renderForm();
     });
 
@@ -422,12 +526,23 @@ export function renderApp(store: Store, root: HTMLElement): void {
   store.subscribe((s) => s.ui.listSearch, renderList);
   store.subscribe((s) => s.ui.listSort, renderList);
   store.subscribe((s) => s.settings.uiSettings.typeGroupCollapsed, renderList);
+  // configOrder 变 → custom 模式下行序刷新（拖拽 drop 后；同 type 顺序写回）
+  store.subscribe((s) => s.settings.uiSettings.configOrder, renderList);
   store.subscribe((s) => s.ui.selectedConfigId, () => renderForm());
   store.subscribe((s) => s.ui.activeTab, syncTabs);
   // draft 变 → 只更新 marker（不重渲染表单，避免失焦）
   store.subscribe((s) => s.editor.draft, () => {
     const m = root.querySelector('#draftMarker');
     if (m) m.textContent = store.getState().editor.draft ? ' ● 未保存' : '';
+    // 周一 hint 随 recurrence 模式（wizard 切换）实时显隐
+    const h = root.querySelector('#startDateHint') as HTMLElement | null;
+    if (h) {
+      const st = store.getState();
+      const id = st.ui.selectedConfigId;
+      const cfg = id ? st.configs[id] : null;
+      const rv = st.editor.draft?.recurrenceValue ?? cfg?.recurrenceValue ?? '';
+      h.style.display = needsMonday(rv) ? '' : 'none';
+    }
   });
   // history 状态变化 → status 刷新
   store.subscribeHistory(() => renderList());

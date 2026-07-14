@@ -13,6 +13,7 @@ import { createStore } from '@/core/store';
 import type { AppState } from '@/core/types';
 import { registerAllFieldTypes } from '@/schema/field-types';
 import { registerBuiltinRecurrenceModes } from '@/model/recurrence/builtin';
+import { registerBuiltinNormalizers } from '@/model/normalizers/builtin';
 import { bindHistoryKeyboard } from '@/core/history-keyboard';
 import { getDefaultSettings, injectV1Data } from '@/services/import-v1-data';
 import { renderApp } from '@/ui/app';
@@ -23,6 +24,7 @@ import './styles/form.css';
 // 1. 注册可拓展机制（阶段3 之前只内置现有类型/模式）
 registerAllFieldTypes();
 registerBuiltinRecurrenceModes();
+registerBuiltinNormalizers();
 
 // 2. 初始 state
 const initialState: AppState = {

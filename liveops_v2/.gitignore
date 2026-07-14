@@ -8,3 +8,6 @@ dist-ssr/
 *.log
 .cache/
 .tmp/
+
+# TypeScript 增量构建产物
+*.tsbuildinfo
