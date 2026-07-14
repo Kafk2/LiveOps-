@@ -66,24 +66,11 @@ function needsMonday(recurrenceValue: string): boolean {
   return mode === 'weekly' || mode === 'biweekly';
 }
 
-/** 生成普通字段 input 行（含 dirty 边框、required/readonly 标记） */
-function inputField(
-  key: string,
-  label: string,
-  config: Config,
-  draft: Partial<Record<string, string>> | null,
-  opts: { required?: boolean; readonly?: boolean },
-): string {
-  const draftVal = draft?.[key];
-  const committedVal = (config as unknown as Record<string, string>)[key] ?? '';
-  const val = draftVal ?? committedVal;
-  const readonly = opts.readonly ? 'readonly style="background:#f5f5f5;"' : '';
-  const req = opts.required ? ' <span style="color:var(--color-danger)">*</span>' : '';
-  const dirty =
-    draftVal !== undefined && draftVal !== committedVal
-      ? ' style="border-color:var(--color-warning);"'
-      : '';
-  return `<div class="form-group"><label>${escapeHtml(label)}${req}</label><input data-field="${escapeHtml(key)}" value="${escapeHtml(val)}" ${readonly}${dirty}></div>`;
+/** draft 是否有字段与 committed 不同（真正改动才显示"未保存"，改回原值不算） */
+function isDirty(draft: Partial<Record<string, string>> | null, config: Config): boolean {
+  if (!draft) return false;
+  const c = config as unknown as Record<string, string>;
+  return Object.keys(draft).some((k) => draft[k] !== c[k]);
 }
 
 /** Date → YYYY-MM-DD HH:MM */
@@ -170,9 +157,19 @@ export function renderApp(store: Store, root: HTMLElement): void {
       );
     }
 
-    statusEl.textContent = `已加载 ${configs.length} 条配置${search ? '（搜索结果）' : ''}（撤销 ${store.canUndo('config') ? '✓' : '✗'} / 重做 ${store.canRedo('config') ? '✓' : '✗'}）`;
-
-    let html = `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
+    // 标题行（贴近 v1：标题 + 导入/导出 CSV）
+    const total = selectConfigsArray(state).length;
+    statusEl.textContent = `${state.ui.loadedFile ? `已载入 ${state.ui.loadedFile}，` : ''}共 ${total} 条配置${search ? `（搜索到 ${configs.length} 条）` : ''}`;
+    let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <h2 style="margin:0;font-size:16px;">配置列表</h2>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary btn-sm" id="importBtn">📥 导入 CSV</button>
+        <button class="btn btn-secondary btn-sm" id="exportAllBtn">📤 导出 CSV</button>
+      </div>
+    </div>`;
+    // 搜索行（贴近 v1：搜索 + 排序 + 编辑排序 + 新建）
+    const isCustom = sort === 'custom';
+    html += `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
       <input id="searchInput" type="text" placeholder="搜索活动名称/key（回车）" value="${escapeHtml(state.ui.listSearch)}" style="flex:1;min-width:140px;padding:6px 8px;border:1px solid var(--color-border);border-radius:4px;">
       <select id="sortSelect" style="padding:6px;border:1px solid var(--color-border);border-radius:4px;">
         <option value="duration"${sort === 'duration' ? ' selected' : ''}>按持续时间</option>
@@ -180,8 +177,8 @@ export function renderApp(store: Store, root: HTMLElement): void {
         <option value="date"${sort === 'date' ? ' selected' : ''}>按开始日期</option>
         <option value="custom"${sort === 'custom' ? ' selected' : ''}>自定义</option>
       </select>
+      <button class="btn ${isCustom ? 'btn-primary' : 'btn-secondary'} btn-sm" id="editOrderBtn">${isCustom ? '✓ 编辑排序中' : '📒 编辑排序'}</button>
       <button class="btn btn-primary btn-sm" id="newBtn">+ 新建</button>
-      <button class="btn btn-secondary btn-sm" id="importBtn">导入 CSV</button>
       <input type="file" id="importFile" accept=".csv,text/csv" style="display:none;">
     </div>`;
 
@@ -253,8 +250,13 @@ export function renderApp(store: Store, root: HTMLElement): void {
 
   function bindListControls(): void {
     // discardUnsavedIfNeeded 守卫：切换/新建前若有草稿需确认
-    const draftGuard = (): boolean =>
-      !store.getState().editor.draft || confirm('有未保存的修改，丢弃？');
+    // discardGuard：切配置/新建前若有真正改动（draft 与 committed 有差异）才确认
+    const draftGuard = (): boolean => {
+      const st = store.getState();
+      const id = st.ui.selectedConfigId;
+      const cfg = id ? st.configs[id] ?? null : null;
+      return !cfg || !isDirty(st.editor.draft, cfg) || confirm('有未保存的修改，丢弃？');
+    };
 
     listEl.querySelector('#searchInput')?.addEventListener('change', (e) => {
       store.dispatch({ type: 'UI_PATCH', payload: { listSearch: (e.target as HTMLInputElement).value } });
@@ -264,6 +266,18 @@ export function renderApp(store: Store, root: HTMLElement): void {
         type: 'UI_PATCH',
         payload: { listSort: (e.target as HTMLSelectElement).value as 'duration' | 'name' | 'date' | 'custom' },
       });
+    });
+    // 编辑排序：切换 custom 模式（行可拖拽），再次点击退出
+    listEl.querySelector('#editOrderBtn')?.addEventListener('click', () => {
+      const cur = store.getState().ui.listSort;
+      store.dispatch({ type: 'UI_PATCH', payload: { listSort: cur === 'custom' ? 'duration' : 'custom' } });
+    });
+    // 导出全部配置 CSV（位置贴近 v1 标题行）
+    listEl.querySelector('#exportAllBtn')?.addEventListener('click', () => {
+      const csv = encodeConfigs(selectConfigsArray(store.getState()));
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      exportEl.innerHTML = `<a href="${url}" download="schedule_v2.csv" class="btn btn-primary btn-sm">⬇ 下载 schedule_v2.csv</a>`;
     });
     listEl.querySelector('#newBtn')?.addEventListener('click', () => {
       if (!draftGuard()) return;
@@ -288,7 +302,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
           }
           if (!confirm(`导入 ${configs.length} 条配置？将替换当前所有配置。`)) return;
           store.dispatch({ type: 'CONFIGS_REPLACE', payload: configs, meta: { skipHistory: true } });
-          store.dispatch({ type: 'UI_PATCH', payload: { selectedConfigId: null } });
+          store.dispatch({ type: 'UI_PATCH', payload: { selectedConfigId: null, loadedFile: file.name } });
         } catch (e) {
           alert('导入失败：' + (e as Error).message);
         }
@@ -389,7 +403,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
     }
 
     const draft = store.getState().editor.draft;
-    const draftMarkerText = draft ? ' ● 未保存' : '';
+    const draftMarkerText = isDirty(draft, config) ? ' ● 未保存' : '';
     const metaMap = selectActivityMetaMap(state);
     // 合并视图：draft 覆盖 committed（preview/结果区用，不改 committed）
     const merged = { ...config, ...(draft ?? {}) } as Config;
@@ -423,8 +437,12 @@ export function renderApp(store: Store, root: HTMLElement): void {
     html += '<div class="edit-col">';
     // activityKey 从已注册的 activityMeta 中搜索选择（不再手填）
     html += `<div class="form-group"><label>活动Key <span style="color:var(--color-danger)">*</span></label><div class="combobox" id="activityKeyCombo"><input type="text" id="activityKeySearch" value="${escapeHtml(merged.activityKey)}" placeholder="搜索或选择活动 Key" autocomplete="off"><div class="combobox-list" id="activityKeyList"></div></div><div class="hint">从「活动管理」页签注册的活动 Key 中选择</div></div>`;
-    html += inputField('dependency', '依赖活动', config, draft, { readonly: true });
-    html += inputField('mutex', '互斥活动', config, draft, { readonly: true });
+    // 依赖/互斥（派生 readonly，空数组/空串不显示 []）
+    const depVal = (draft?.dependency ?? config.dependency) || '';
+    const mutexRaw = draft?.mutex ?? config.mutex;
+    const mutexVal = !mutexRaw || mutexRaw === '[]' ? '' : mutexRaw;
+    html += `<div class="form-group"><label>依赖活动</label><input value="${escapeHtml(depVal)}" readonly style="background:#f5f5f5;"></div>`;
+    html += `<div class="form-group"><label>互斥活动</label><input value="${escapeHtml(mutexVal)}" readonly style="background:#f5f5f5;"></div>`;
     // 活动描述（只读，跟随 activityKey 从 activityMeta 读取；在「活动管理」页签编辑）
     // 注：活动名称不在配置表单显示——标题栏已展示
     const meta = metaMap[config.activityKey];
@@ -709,7 +727,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
         ...config,
         ...draftNow,
         dependency: dep,
-        mutex: JSON.stringify(mutexArr),
+        mutex: mutexArr.length > 0 ? JSON.stringify(mutexArr) : '',
       } as Config;
       // 保存前跑 normalizer（周一校正等自动改值，非阻断）
       const { config: normalized, messages } = runNormalizers(next);
@@ -892,6 +910,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
   store.subscribe((s) => s.settings.uiSettings.typeGroupCollapsed, renderList);
   // configOrder 变 → custom 模式下行序刷新（拖拽 drop 后；同 type 顺序写回）
   store.subscribe((s) => s.settings.uiSettings.configOrder, renderList);
+  store.subscribe((s) => s.ui.loadedFile, renderList);
   // activityMeta 变 → 列表 name/分组刷新 + 表单折叠结果区刷新（不改表单 input 避免失焦）
   store.subscribe((s) => s.settings.activityMeta, () => {
     renderList();
@@ -901,8 +920,11 @@ export function renderApp(store: Store, root: HTMLElement): void {
   store.subscribe((s) => s.ui.activeTab, syncTabs);
   // draft 变 → 只更新 marker（不重渲染表单，避免失焦）
   store.subscribe((s) => s.editor.draft, () => {
+    const st = store.getState();
+    const id = st.ui.selectedConfigId;
+    const cfg = id ? st.configs[id] ?? null : null;
     const m = root.querySelector('#draftMarker');
-    if (m) m.textContent = store.getState().editor.draft ? ' ● 未保存' : '';
+    if (m) m.textContent = cfg && isDirty(st.editor.draft, cfg) ? ' ● 未保存' : '';
     // 周一 hint 随 recurrence 模式（wizard 切换）实时显隐
     const h = root.querySelector('#startDateHint') as HTMLElement | null;
     if (h) {

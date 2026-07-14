@@ -34,6 +34,7 @@ function emptyState(): AppState {
       selectedConfigId: null,
       listSearch: '',
       listSort: 'duration',
+      loadedFile: '',
       timeline: { sliderPos: 0.625, scrollLeft: 0, showStopped: false, rowHeight: 29 },
     },
     editor: { draft: null },

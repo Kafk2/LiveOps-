@@ -102,9 +102,10 @@ function decodeCsvToConfigs(csvText: string): Config[] {
  * 从 public/data/ 加载 v1 数据。
  * 多级回退，失败不抛错，返回尽量多的数据 + 默认 settings。
  */
-export async function loadV1Data(): Promise<{ configs: Config[]; settings: Settings }> {
+export async function loadV1Data(): Promise<{ configs: Config[]; settings: Settings; fileName: string }> {
   let configs: Config[] = [];
   let primarySucceeded = false;
+  let fileName = '';
 
   // ---- 主链路：latest.json → 版本化 schedule CSV ----
   const latest = await fetchJson<LatestManifest>('./data/latest.json');
@@ -115,7 +116,9 @@ export async function loadV1Data(): Promise<{ configs: Config[]; settings: Setti
       // 注意：dev server 对不存在的路径可能 SPA 回退返回 200 HTML，
       // 此时 decode 得空 configs，必须继续回退（不能仅凭 csvText != null 判成功）
       primarySucceeded = configs.length > 0;
-      if (!primarySucceeded) {
+      if (primarySucceeded) {
+        fileName = latest.scheduleFile;
+      } else {
         console.warn('[import-v1-data] 版本化 schedule 解析为空（可能 HTML 回退），回退 schedule.csv');
       }
     } else {
@@ -131,6 +134,7 @@ export async function loadV1Data(): Promise<{ configs: Config[]; settings: Setti
     const csvText = await fetchText('./data/schedule.csv');
     if (csvText != null) {
       configs = decodeCsvToConfigs(csvText);
+      fileName = 'schedule.csv';
     }
   }
 
@@ -147,7 +151,7 @@ export async function loadV1Data(): Promise<{ configs: Config[]; settings: Setti
     paramsSchemas: migrateParamsSchemas(settingsJson?.paramsSchemas, baseSettings.paramsSchemas),
   };
 
-  return { configs, settings };
+  return { configs, settings, fileName };
 }
 
 /**
@@ -178,7 +182,7 @@ function migrateParamsSchemas(
  * meta.skipHistory = true：初始注入不应成为 undo 起点（与 GitHub pull 同语义）。
  */
 export async function injectV1Data(store: Store): Promise<void> {
-  const { configs, settings } = await loadV1Data();
+  const { configs, settings, fileName } = await loadV1Data();
   // 先 settings 后 configs：configs 变更触发列表渲染时 activityMeta 已就绪，
   // 配置才能正确按 activityType 分组（否则全落 unknown）
   store.dispatch({
@@ -191,4 +195,8 @@ export async function injectV1Data(store: Store): Promise<void> {
     payload: configs,
     meta: { skipHistory: true },
   });
+  // 记录已载入文件名，供状态栏展示
+  if (fileName) {
+    store.dispatch({ type: 'UI_PATCH', payload: { loadedFile: fileName }, meta: { skipHistory: true } });
+  }
 }

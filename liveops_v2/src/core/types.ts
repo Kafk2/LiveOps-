@@ -140,6 +140,8 @@ export interface UIState {
   selectedConfigId: string | null;
   listSearch: string;
   listSort: 'duration' | 'name' | 'date' | 'custom';
+  /** 当前已载入的配置文件名（dev 注入 / CSV 导入），用于状态栏展示 */
+  loadedFile: string;
   /** 时间轴 UI 临时态（仅本地，不同步） */
   timeline: TimelineUIState;
 }
