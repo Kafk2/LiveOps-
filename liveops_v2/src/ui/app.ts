@@ -256,7 +256,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
           const sel = state.ui.editSelectedIds;
           const selClass = isCustom && sel[c.id] ? ' edit-selected' : '';
           const cb = isCustom
-            ? `<input type="checkbox" class="edit-cb" data-id="${escapeHtml(c.id)}"${sel[c.id] ? ' checked' : ''} style="margin-right:6px;">`
+            ? `<label class="edit-cb-wrap"><input type="checkbox" class="edit-cb" data-id="${escapeHtml(c.id)}"${sel[c.id] ? ' checked' : ''}></label>`
             : '';
           const dragAttrs = isCustom ? ' draggable="true"' : '';
           html += `<tr class="config-row${active}${selClass}" data-id="${escapeHtml(c.id)}"${dragAttrs}><td>${cb}${name}</td><td>${escapeHtml(c.activityKey)}</td><td>${escapeHtml(c.scheduleStartDate)}</td><td>${badge}</td></tr>`;
@@ -313,9 +313,11 @@ export function renderApp(store: Store, root: HTMLElement): void {
       store.dispatch({ type: 'CONFIGS_DELETE_BATCH', payload: ids });
       store.dispatch({ type: 'UI_PATCH', payload: { editSelectedIds: {} } });
     });
-    // 多选勾选框（click 阻止冒泡，避免触发选中配置）
+    // 多选勾选框：label 包裹扩大 hit area（方块不变），click 阻止冒泡避免触发选中配置
+    listEl.querySelectorAll<HTMLElement>('.edit-cb-wrap').forEach((wrap) => {
+      wrap.addEventListener('click', (e) => e.stopPropagation());
+    });
     listEl.querySelectorAll<HTMLInputElement>('.edit-cb').forEach((cb) => {
-      cb.addEventListener('click', (e) => e.stopPropagation());
       cb.addEventListener('change', () => {
         const id = cb.dataset.id!;
         const sel = { ...store.getState().ui.editSelectedIds };

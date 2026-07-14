@@ -147,9 +147,18 @@
   background: #fff7e6 !important;
 }
 
-.edit-cb {
+.edit-cb-wrap {
+  display: inline-block;
+  padding: 4px; /* 扩大点击判定区约 1.5 倍，方块本身不变 */
+  margin-right: 2px;
   cursor: pointer;
   vertical-align: middle;
+}
+
+.edit-cb {
+  cursor: pointer;
+  margin: 0;
+  display: block;
 }
 
 .status-badge {
