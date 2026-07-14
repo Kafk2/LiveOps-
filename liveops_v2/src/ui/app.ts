@@ -92,6 +92,25 @@ function fmtDate(d: Date): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+/**
+ * 解析 skin 字符串为皮肤列表（兼容 v1 JSON 数组 `["a","b"]` 与逗号分隔 `a,b`）。
+ * 底层存储仍用 JSON 数组（CSV 互通），UI 用逗号分隔编辑。
+ */
+function parseSkinList(s: string): string[] {
+  const str = (s ?? '').trim();
+  if (!str) return [];
+  try {
+    const p = JSON.parse(str);
+    if (Array.isArray(p)) return p.map((x) => String(x).trim()).filter((x) => x.length);
+  } catch {
+    // 非 JSON 数组：按逗号分隔
+  }
+  return str
+    .split(',')
+    .map((x) => x.trim())
+    .filter((x) => x.length);
+}
+
 export function renderApp(store: Store, root: HTMLElement): void {
   root.innerHTML = `
     <div class="container">
@@ -411,7 +430,9 @@ export function renderApp(store: Store, root: HTMLElement): void {
     const meta = metaMap[config.activityKey];
     html += `<div class="form-group"><label>活动描述</label><input id="activityDescDisplay" value="${escapeHtml(meta?.activityDescription ?? '')}" readonly style="background:#f5f5f5;"><div class="hint">在「活动管理」页签编辑</div></div>`;
     html += `<div class="form-group"><label>活动类型</label><input value="${escapeHtml(meta?.activityType ?? 'default')}" readonly style="background:#f5f5f5;"><div class="hint">在「活动类型」页签中拖动活动 Key 改变归属</div></div>`;
-    html += inputField('skin', '皮肤配置', config, draft, {});
+    // 皮肤配置：逗号分隔输入（底层存 JSON 数组兼容 v1 CSV，UI 无需 []）
+    const skinDisplay = parseSkinList(draft?.skin ?? config.skin).join(',');
+    html += `<div class="form-group"><label>皮肤配置</label><input id="skinInput" value="${escapeHtml(skinDisplay)}" placeholder="如 CCD01,CCD02"><div class="hint">逗号分隔，无需 []</div></div>`;
     html += '<div class="form-group"><label>业务参数（params）</label><div id="paramsHost"></div></div>';
     html += '</div>';
     // ===== 右列：排期 =====
@@ -434,6 +455,16 @@ export function renderApp(store: Store, root: HTMLElement): void {
         const field = input.dataset.field as keyof Config;
         store.dispatch({ type: 'DRAFT_EDIT', payload: { field, value: input.value } });
       });
+    });
+
+    // 皮肤配置：逗号分隔 → JSON 数组存储（兼容 v1 CSV）
+    const skinInput = formEl.querySelector<HTMLInputElement>('#skinInput');
+    skinInput?.addEventListener('change', () => {
+      const list = skinInput.value
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length);
+      store.dispatch({ type: 'DRAFT_EDIT', payload: { field: 'skin', value: JSON.stringify(list) } });
     });
 
     // activityKey 搜索选择（combobox）：从已注册 activityMeta 过滤，点选写入草稿
@@ -626,14 +657,12 @@ export function renderApp(store: Store, root: HTMLElement): void {
         // 脏 JSON：回退 json input
       }
       if (schemaFields.length === 0) {
-        const ta = document.createElement('textarea');
-        ta.rows = 3;
-        ta.value = paramsStr;
-        ta.style.cssText = 'width:100%;padding:6px;border:1px solid var(--color-border);border-radius:4px;font-family:monospace;font-size:12px;';
-        ta.addEventListener('change', () =>
-          store.dispatch({ type: 'DRAFT_EDIT', payload: { field: 'params', value: ta.value } }),
-        );
-        paramsHost.appendChild(ta);
+        // 无 Params Schema：不可自由编辑（只能配置 Schema 已定义的结构），提示去 Schema 编辑器定义
+        const tip = document.createElement('div');
+        tip.className = 'hint';
+        tip.style.cssText = 'padding:10px;background:#f5f5f5;border-radius:4px;line-height:1.6;';
+        tip.textContent = '该活动暂无 Params Schema。请在「Schema 编辑」页签定义参数结构后，再在此配置参数。';
+        paramsHost.appendChild(tip);
       } else {
         const update = (key: string, val: unknown) => {
           const next = { ...paramsObj, [key]: val };
