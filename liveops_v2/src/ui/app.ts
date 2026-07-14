@@ -20,7 +20,7 @@ import {
 import { isEnabled, Config, TabKey } from '@/core/types';
 import { CSV_SCHEMA } from '@/schema/csv-schema';
 import { createEmptyConfig, copyConfig } from '@/model/config';
-import { encodeConfigs } from '@/services/csv-codec';
+import { encodeConfigs, parseCSV, decodeConfigs } from '@/services/csv-codec';
 import { renderTimeline } from '@/ui/timeline';
 import { createRecurrenceWizard } from '@/ui/recurrence-wizard';
 import { renderSchemaTab } from '@/ui/schema-tab';
@@ -106,6 +106,8 @@ export function renderApp(store: Store, root: HTMLElement): void {
         <option value="custom"${sort === 'custom' ? ' selected' : ''}>自定义</option>
       </select>
       <button class="btn btn-primary btn-sm" id="newBtn">+ 新建</button>
+      <button class="btn btn-secondary btn-sm" id="importBtn">导入 CSV</button>
+      <input type="file" id="importFile" accept=".csv,text/csv" style="display:none;">
     </div>`;
 
     if (configs.length === 0) {
@@ -175,6 +177,30 @@ export function renderApp(store: Store, root: HTMLElement): void {
       store.dispatch({ type: 'CONFIG_SAVE', payload: c });
       store.dispatch({ type: 'UI_PATCH', payload: { selectedConfigId: c.id } });
     });
+    // 导入 CSV：文件选择 → parseCSV → decodeConfigs → CONFIGS_REPLACE
+    const importBtn = listEl.querySelector('#importBtn');
+    const importFile = listEl.querySelector('#importFile') as HTMLInputElement | null;
+    if (importBtn && importFile) {
+      importBtn.addEventListener('click', () => importFile.click());
+      importFile.addEventListener('change', async () => {
+        const file = importFile.files?.[0];
+        if (!file) return;
+        try {
+          const text = await file.text();
+          const configs = decodeConfigs(parseCSV(text));
+          if (configs.length === 0) {
+            alert('未解析到有效配置（检查 CSV 格式/表头）');
+            return;
+          }
+          if (!confirm(`导入 ${configs.length} 条配置？将替换当前所有配置。`)) return;
+          store.dispatch({ type: 'CONFIGS_REPLACE', payload: configs, meta: { skipHistory: true } });
+          store.dispatch({ type: 'UI_PATCH', payload: { selectedConfigId: null } });
+        } catch (e) {
+          alert('导入失败：' + (e as Error).message);
+        }
+        importFile.value = ''; // 允许重复导入同一文件
+      });
+    }
     listEl.querySelectorAll<HTMLElement>('.type-group-header').forEach((h) => {
       h.addEventListener('click', () => {
         const type = h.dataset.type!;
@@ -316,9 +342,21 @@ export function renderApp(store: Store, root: HTMLElement): void {
     });
 
     formEl.querySelector('#saveBtn')?.addEventListener('click', () => {
-      // 保存 = committed + 所有未应用草稿（input/wizard 都已实时写入 draft）
+      // 保存 = committed + 所有未应用草稿；dependency/mutex 从 settings 反查（派生字段）
       const draftNow = store.getState().editor.draft ?? {};
-      const next: Config = { ...config, ...draftNow } as Config;
+      const st = store.getState().settings;
+      const activityKey = draftNow.activityKey ?? config.activityKey;
+      const dep = st.dependencies
+        .filter((d) => d.child === activityKey)
+        .map((d) => d.parent)
+        .join(',');
+      const mutexArr = st.mutexGroups.filter((g) => g.activities.includes(activityKey)).map((g) => g.id);
+      const next: Config = {
+        ...config,
+        ...draftNow,
+        dependency: dep,
+        mutex: JSON.stringify(mutexArr),
+      } as Config;
       store.dispatch({ type: 'CONFIG_SAVE', payload: next });
       renderForm();
     });
