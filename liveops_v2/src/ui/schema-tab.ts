@@ -1,16 +1,13 @@
 /**
- * ui/schema-tab.ts — params schema 策划编辑器（迭代4 完善：per-key 覆盖）
+ * ui/schema-tab.ts — params schema 策划编辑器（仅按 activityKey 绑定，无类型默认）
  *
- * 两种编辑目标：
- * - 类型默认（byType）：按 activityType 配置默认 params 字段
- * - 活动覆盖（overrides）：按 activityKey 配置专属 params（完整覆盖所属 type 默认）
- *
- * resolve 时 per-key 覆盖优先，否则用 type 默认。form params 区按 resolve 结果渲染。
- * 防护：key 唯一校验、删除确认、SCHEMA_PATCH 独立 history 栈。
+ * 每个 activityKey 独立配置其 params 字段结构。配置管理表单的 params 区按
+ * resolveParamsSchema(schemas, activityKey) 渲染。
+ * 防护：字段 key 唯一校验、删除确认、SCHEMA_PATCH 独立 history 栈。
  */
 
 import type { Store } from '@/core/store';
-import type { ParamsFieldDef, ParamsSchemaRoot } from '@/core/types';
+import type { ParamsFieldDef, ParamsSchemas } from '@/core/types';
 import { selectSettings } from '@/core/selectors';
 import { validateParamsSchema } from '@/schema/params-schema';
 
@@ -21,49 +18,33 @@ function escapeHtml(s: string): string {
 }
 
 export function renderSchemaTab(store: Store, root: HTMLElement): void {
-  let editMode: 'type' | 'key' = 'type';
-  let selectedType = '';
   let selectedKey = '';
 
   function render(): void {
     const settings = selectSettings(store.getState());
-    const schemaRoot = settings.paramsSchemas;
+    const schemas = settings.paramsSchemas;
     const meta = settings.activityMeta;
-    const types = Array.from(new Set(meta.map((m) => m.activityType)));
     const keys = meta.map((m) => m.activityKey);
-    if (editMode === 'type' && !selectedType && types.length > 0) selectedType = types[0]!;
-    if (editMode === 'key' && !selectedKey && keys.length > 0) selectedKey = keys[0]!;
-
-    const bucket: 'byType' | 'overrides' = editMode === 'type' ? 'byType' : 'overrides';
-    const targetKey = editMode === 'type' ? selectedType : selectedKey;
-    const store2 = bucket === 'byType' ? schemaRoot.byType : schemaRoot.overrides;
-    const fields: ParamsFieldDef[] = store2[targetKey] ?? [];
-    const validation = validateParamsSchema(schemaRoot);
-    const affectedCount =
-      editMode === 'key'
-        ? meta.filter((m) => m.activityKey === selectedKey).length
-        : meta.filter((m) => m.activityType === selectedType).length;
+    // selectedKey 失效（被删）则重置为首个
+    if (selectedKey && !keys.includes(selectedKey)) selectedKey = '';
+    if (!selectedKey && keys.length > 0) selectedKey = keys[0]!;
+    const fields: ParamsFieldDef[] = schemas[selectedKey] ?? [];
+    const validation = validateParamsSchema(schemas);
+    const affectedCount = meta.filter((m) => m.activityKey === selectedKey).length;
 
     root.innerHTML = `
       <div style="padding:20px;">
         <div class="section-title">Params Schema 编辑器</div>
-        <div style="display:flex;gap:16px;margin-bottom:12px;align-items:center;">
-          <label><input type="radio" name="editMode" value="type"${editMode === 'type' ? ' checked' : ''}> 类型默认</label>
-          <label><input type="radio" name="editMode" value="key"${editMode === 'key' ? ' checked' : ''}> 活动覆盖（按 activityKey）</label>
-        </div>
+        <div style="font-size:12px;color:var(--color-text-tertiary);margin-bottom:12px;">每个活动 Key 独立配置其参数结构（无类型默认）。配置管理界面的 params 区只能编辑此处已定义的字段。</div>
         <div style="margin-bottom:12px;display:flex;gap:12px;align-items:center;">
-          ${
-            editMode === 'type'
-              ? `<label>活动类型：</label><select id="schemaTypeSelect" style="padding:6px;border:1px solid var(--color-border);border-radius:4px;min-width:160px;">${types.map((t) => `<option value="${escapeHtml(t)}"${t === selectedType ? ' selected' : ''}>${escapeHtml(t)}</option>`).join('')}</select>`
-              : `<label>activityKey：</label><select id="schemaKeySelect" style="padding:6px;border:1px solid var(--color-border);border-radius:4px;min-width:220px;">${keys.map((k) => `<option value="${escapeHtml(k)}"${k === selectedKey ? ' selected' : ''}>${escapeHtml(k)}</option>`).join('')}</select>`
-          }
-          <span style="font-size:12px;color:var(--color-text-secondary);">${editMode === 'key' ? `该 activityKey ${affectedCount} 个配置` : `该类型 ${affectedCount} 个活动`}；当前 ${fields.length} 字段${editMode === 'key' ? `${fields.length > 0 ? '（覆盖类型默认）' : '（无覆盖，用类型默认）'}` : ''}</span>
+          <label>activityKey：</label>
+          <select id="schemaKeySelect" style="padding:6px;border:1px solid var(--color-border);border-radius:4px;min-width:220px;">${keys.map((k) => `<option value="${escapeHtml(k)}"${k === selectedKey ? ' selected' : ''}>${escapeHtml(k)}</option>`).join('')}</select>
+          <span style="font-size:12px;color:var(--color-text-secondary);">该 activityKey ${affectedCount} 个配置；当前 ${fields.length} 字段</span>
         </div>
 
         <div id="schemaValidation">${validation.errors.length ? `<div style="color:var(--color-danger);font-size:12px;">${validation.errors.map((e) => escapeHtml(e.message)).join('；')}</div>` : '<div style="color:var(--color-success);font-size:12px;">schema 校验通过</div>'}</div>
 
-        ${editMode === 'key' && fields.length === 0 ? `<div style="margin:12px 0;"><button class="btn btn-secondary btn-sm" id="initOverrideBtn">从此类型的默认 schema 初始化覆盖</button></div>` : ''}
-
+        ${keys.length === 0 ? '<div class="empty-state">尚未注册任何活动 Key，请先在「活动管理」页签注册</div>' : `
         <table class="config-table" style="margin-top:12px;">
           <thead><tr><th>字段 key</th><th>类型</th><th>必填</th><th>默认值</th><th>操作</th></tr></thead>
           <tbody>
@@ -81,63 +62,41 @@ export function renderSchemaTab(store: Store, root: HTMLElement): void {
 
         <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-primary btn-sm" id="addFieldBtn">+ 新增字段</button>
-          ${editMode === 'key' ? '<button class="btn btn-danger btn-sm" id="clearOverrideBtn">清除覆盖（恢复用类型默认）</button>' : ''}
+          ${fields.length > 0 ? '<button class="btn btn-danger btn-sm" id="clearSchemaBtn">清空该 Key 的 schema</button>' : ''}
           <button class="btn btn-secondary btn-sm" id="saveSchemaBtn">💾 保存 schema</button>
-        </div>
+        </div>`}
       </div>
     `;
-    bind(schemaRoot, bucket, targetKey);
+    bind();
   }
 
-  function commit(newRoot: ParamsSchemaRoot): void {
-    store.dispatch({ type: 'SCHEMA_PATCH', payload: newRoot });
+  function commit(next: ParamsSchemas): void {
+    store.dispatch({ type: 'SCHEMA_PATCH', payload: next });
   }
 
-  function writeFields(schemaRoot: ParamsSchemaRoot, bucket: 'byType' | 'overrides', key: string, fields: ParamsFieldDef[]): ParamsSchemaRoot {
-    const store2 = bucket === 'byType' ? schemaRoot.byType : schemaRoot.overrides;
-    const nextStore = { ...store2, [key]: fields };
-    return bucket === 'byType' ? { ...schemaRoot, byType: nextStore } : { ...schemaRoot, overrides: nextStore };
+  function writeFields(schemas: ParamsSchemas, key: string, fields: ParamsFieldDef[]): ParamsSchemas {
+    return { ...schemas, [key]: fields };
   }
 
-  function bind(schemaRoot: ParamsSchemaRoot, bucket: 'byType' | 'overrides', targetKey: string): void {
-    root.querySelectorAll<HTMLInputElement>('input[name="editMode"]').forEach((r) => {
-      r.addEventListener('change', () => {
-        editMode = r.value as 'type' | 'key';
-        render();
-      });
-    });
-    root.querySelector('#schemaTypeSelect')?.addEventListener('change', (e) => {
-      selectedType = (e.target as HTMLSelectElement).value;
-      render();
-    });
+  function bind(): void {
+    const targetKey = selectedKey;
     root.querySelector('#schemaKeySelect')?.addEventListener('change', (e) => {
       selectedKey = (e.target as HTMLSelectElement).value;
       render();
     });
-    root.querySelector('#initOverrideBtn')?.addEventListener('click', () => {
-      // 用所属 type 默认初始化覆盖
-      const meta = selectSettings(store.getState()).activityMeta;
-      const type = meta.find((m) => m.activityKey === selectedKey)?.activityType ?? '';
-      const base = selectSettings(store.getState()).paramsSchemas.byType[type] ?? [];
-      commit(writeFields(schemaRoot, 'overrides', selectedKey, base.map((f) => ({ ...f }))));
-    });
-    root.querySelector('#clearOverrideBtn')?.addEventListener('click', () => {
-      if (!confirm(`清除 activityKey「${selectedKey}」的覆盖？（恢复使用类型默认）`)) return;
-      const nextOverrides = { ...schemaRoot.overrides };
-      delete nextOverrides[selectedKey];
-      commit({ ...schemaRoot, overrides: nextOverrides });
-    });
     root.querySelector('#addFieldBtn')?.addEventListener('click', () => {
-      const cur = (bucket === 'byType' ? schemaRoot.byType : schemaRoot.overrides)[targetKey] ?? [];
+      const schemas = selectSettings(store.getState()).paramsSchemas;
+      const cur = schemas[targetKey] ?? [];
       let n = 1;
       while (cur.some((f) => f.key === `field${n}`)) n++;
-      commit(writeFields(schemaRoot, bucket, targetKey, [...cur, { key: `field${n}`, fieldType: 'text' }]));
+      commit(writeFields(schemas, targetKey, [...cur, { key: `field${n}`, fieldType: 'text' }]));
     });
     root.querySelectorAll<HTMLElement>('[data-row]').forEach((el) => {
       const row = parseInt(el.dataset.row!, 10);
       const prop = el.dataset.prop!;
       el.addEventListener('change', () => {
-        const cur = ((bucket === 'byType' ? schemaRoot.byType : schemaRoot.overrides)[targetKey] ?? []).map((f) => ({ ...f }));
+        const schemas = selectSettings(store.getState()).paramsSchemas;
+        const cur = (schemas[targetKey] ?? []).map((f) => ({ ...f }));
         const f = cur[row];
         if (!f) return;
         const input = el as HTMLInputElement;
@@ -146,18 +105,26 @@ export function renderSchemaTab(store: Store, root: HTMLElement): void {
         else if (prop === 'key') f.key = input.value;
         else if (prop === 'fieldType') f.fieldType = select.value;
         else if (prop === 'default') f.default = input.value;
-        commit(writeFields(schemaRoot, bucket, targetKey, cur));
+        commit(writeFields(schemas, targetKey, cur));
       });
     });
     root.querySelectorAll<HTMLElement>('[data-del]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const idx = parseInt(btn.dataset.del!, 10);
-        const cur = (bucket === 'byType' ? schemaRoot.byType : schemaRoot.overrides)[targetKey] ?? [];
+        const schemas = selectSettings(store.getState()).paramsSchemas;
+        const cur = schemas[targetKey] ?? [];
         const target = cur[idx];
         if (!target) return;
         if (!confirm(`删除字段「${target.key}」？`)) return;
-        commit(writeFields(schemaRoot, bucket, targetKey, cur.filter((_, i) => i !== idx)));
+        commit(writeFields(schemas, targetKey, cur.filter((_, i) => i !== idx)));
       });
+    });
+    root.querySelector('#clearSchemaBtn')?.addEventListener('click', () => {
+      if (!confirm(`清空 activityKey「${targetKey}」的 schema？`)) return;
+      const schemas = selectSettings(store.getState()).paramsSchemas;
+      const next = { ...schemas };
+      delete next[targetKey];
+      commit(next);
     });
     root.querySelector('#saveSchemaBtn')?.addEventListener('click', () => {
       const v = validateParamsSchema(selectSettings(store.getState()).paramsSchemas);

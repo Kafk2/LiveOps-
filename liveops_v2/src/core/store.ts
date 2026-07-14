@@ -27,7 +27,7 @@ import { AppState, Action, Config, Selector, Listener } from './types';
 const MAX_HISTORY_DEPTH = 20; // v1: _maxUndoDepth = 20
 
 interface HistoryEntry {
-  snapshot: unknown; // config scope: {configs, configIds}；schema scope: ParamsSchemaRoot
+  snapshot: unknown; // config scope: {configs, configIds}；schema scope: ParamsSchemas
   label: string; // 操作名（按钮 title）
 }
 

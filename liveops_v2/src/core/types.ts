@@ -118,20 +118,15 @@ export interface ParamsFieldDef {
   deprecated?: boolean;
 }
 
-export interface ParamsSchemaRoot {
-  /** activityType → 默认 params 字段定义 */
-  byType: Record<string, ParamsFieldDef[]>;
-  /** activityKey → 完整覆盖（若有，替代所属 type 默认；无则用 type 默认） */
-  overrides: Record<string, ParamsFieldDef[]>;
-  version: number; // schema 版本号，用于数据迁移
-}
+/** params schema：按 activityKey 绑定的字段定义数组（无类型默认，每个 key 独立配置） */
+export type ParamsSchemas = Record<string, ParamsFieldDef[]>;
 
 export interface Settings {
   activityMeta: ActivityMeta[];
   dependencies: Dependency[];
   mutexGroups: MutexGroup[];
   uiSettings: UISettings;
-  paramsSchemas: ParamsSchemaRoot; // v2 新增
+  paramsSchemas: ParamsSchemas; // v2 新增：activityKey → 字段定义
 }
 
 // ============================================================================

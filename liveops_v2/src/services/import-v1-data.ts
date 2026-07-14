@@ -47,7 +47,7 @@ export function getDefaultSettings(): Settings {
       ],
       barColors: {},
     },
-    paramsSchemas: { byType: {}, overrides: {}, version: 1 },
+    paramsSchemas: {},
   };
 }
 
@@ -144,10 +144,29 @@ export async function loadV1Data(): Promise<{ configs: Config[]; settings: Setti
       ...baseSettings.uiSettings,
       ...(settingsJson?.uiSettings ?? {}),
     },
-    paramsSchemas: settingsJson?.paramsSchemas ?? baseSettings.paramsSchemas,
+    paramsSchemas: migrateParamsSchemas(settingsJson?.paramsSchemas, baseSettings.paramsSchemas),
   };
 
   return { configs, settings };
+}
+
+/**
+ * params schema 迁移：去掉类型默认（byType），只保留按 activityKey 绑定。
+ * 旧结构 { byType, overrides, version } → 取 overrides（per-key），丢弃 byType。
+ * 新结构 Record<activityKey, fields> 原样保留。
+ */
+function migrateParamsSchemas(
+  raw: unknown,
+  fallback: Settings['paramsSchemas'],
+): Settings['paramsSchemas'] {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return fallback;
+  const obj = raw as Record<string, unknown>;
+  // 旧结构特征：含 byType 或 overrides 字段
+  if ('byType' in obj || 'overrides' in obj) {
+    const overrides = (obj as { overrides?: Record<string, unknown> }).overrides;
+    return (overrides && typeof overrides === 'object' ? overrides : {}) as Settings['paramsSchemas'];
+  }
+  return obj as Settings['paramsSchemas'];
 }
 
 // ----------------------------------------------------------------------------

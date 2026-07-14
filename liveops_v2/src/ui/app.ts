@@ -640,13 +640,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
     const paramsHost = formEl.querySelector<HTMLElement>('#paramsHost');
     if (paramsHost) {
       const state = store.getState();
-      const meta = selectActivityMetaMap(state)[config.activityKey];
-      const activityType = meta?.activityType ?? 'unknown';
-      const schemaFields = resolveParamsSchema(
-        state.settings.paramsSchemas,
-        config.activityKey,
-        activityType,
-      );
+      const schemaFields = resolveParamsSchema(state.settings.paramsSchemas, config.activityKey);
       const draftNow = store.getState().editor.draft;
       const paramsStr = draftNow?.params ?? config.params;
       let paramsObj: Record<string, unknown> = {};
