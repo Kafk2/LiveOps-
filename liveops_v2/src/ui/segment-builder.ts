@@ -44,6 +44,13 @@ export function createSegmentBuilder(opts: SegmentBuilderOpts): SegmentBuilderHa
   let tree: SegmentExpr = parseToRoot(opts.value);
   const root = document.createElement('div');
   root.className = 'seg-builder';
+  let previewEl: HTMLElement | null = null;
+
+  function refreshPreview(): void {
+    if (!previewEl) return;
+    const s = serializeSegmentExpr(tree);
+    previewEl.textContent = s ? `表达式：${s}` : '（无条件，全体玩家可见）';
+  }
 
   function emit(): void {
     opts.onChange(serializeSegmentExpr(tree));
@@ -51,6 +58,7 @@ export function createSegmentBuilder(opts: SegmentBuilderOpts): SegmentBuilderHa
   function updateNode(path: string, fn: (n: SegmentExpr) => SegmentExpr): void {
     tree = applyAtPath(tree, path, fn);
     emit();
+    refreshPreview(); // 参数输入不重渲染（避免失焦），单独刷新预览
   }
 
   function h(tag: string, cls: string): HTMLElement {
@@ -191,11 +199,9 @@ export function createSegmentBuilder(opts: SegmentBuilderOpts): SegmentBuilderHa
   function render(): void {
     root.innerHTML = '';
     root.appendChild(renderNode(tree, ''));
-    // 表达式预览
-    const preview = h('div', 'seg-preview');
-    const s = serializeSegmentExpr(tree);
-    preview.textContent = s ? `表达式：${s}` : '（无条件，全体玩家可见）';
-    root.appendChild(preview);
+    previewEl = h('div', 'seg-preview');
+    root.appendChild(previewEl);
+    refreshPreview();
   }
 
   render();

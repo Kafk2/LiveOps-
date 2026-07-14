@@ -926,6 +926,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
       ${row('开始时间:', startTime)}
       ${row('结束:', cfg.scheduleEndDate || '无限循环')}
       ${row('规则:', '[' + rv.join(',') + ']')}
+      ${row('玩家条件:', cfg.segments || '无条件（全体可见）')}
       ${row('持续:', durationHours + 'h')}
       ${row('类型:', getActivityType(cfg, metaMap))}
     </div>`;
