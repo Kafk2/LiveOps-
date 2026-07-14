@@ -544,10 +544,10 @@ export function renderApp(store: Store, root: HTMLElement): void {
       renderForm();
       alert('已删除活动类型：' + cur);
     });
-    formEl.querySelector<HTMLInputElement>('#activityNameInput')?.addEventListener('input', (e) => {
+    formEl.querySelector<HTMLInputElement>('#activityNameInput')?.addEventListener('change', (e) => {
       updateActivityMeta(config.activityKey, { activityName: (e.target as HTMLInputElement).value });
     });
-    formEl.querySelector<HTMLInputElement>('#activityDescInput')?.addEventListener('input', (e) => {
+    formEl.querySelector<HTMLInputElement>('#activityDescInput')?.addEventListener('change', (e) => {
       updateActivityMeta(config.activityKey, {
         activityDescription: (e.target as HTMLInputElement).value,
       });
@@ -944,6 +944,11 @@ export function renderApp(store: Store, root: HTMLElement): void {
   store.subscribe((s) => s.settings.uiSettings.typeGroupCollapsed, renderList);
   // configOrder 变 → custom 模式下行序刷新（拖拽 drop 后；同 type 顺序写回）
   store.subscribe((s) => s.settings.uiSettings.configOrder, renderList);
+  // activityMeta 变 → 列表 name/分组刷新 + 表单折叠结果区刷新（不改表单 input 避免失焦）
+  store.subscribe((s) => s.settings.activityMeta, () => {
+    renderList();
+    renderActualSchedule();
+  });
   store.subscribe((s) => s.ui.selectedConfigId, () => renderForm());
   store.subscribe((s) => s.ui.activeTab, syncTabs);
   // draft 变 → 只更新 marker（不重渲染表单，避免失焦）
