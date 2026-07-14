@@ -17,7 +17,7 @@ import {
   getActivityName,
   getActivityType,
 } from '@/core/selectors';
-import { isEnabled, Config, TabKey } from '@/core/types';
+import { isEnabled, Config, TabKey, ActivityMeta } from '@/core/types';
 import { runNormalizers } from '@/schema/validators';
 import { createEmptyConfig, copyConfig } from '@/model/config';
 import { parseRecurrenceValue } from '@/model/recurrence/builtin';
@@ -29,6 +29,11 @@ import {
   validateDurationAgainstPeriod,
 } from '@/model/cycle';
 import { calculateActualSchedules } from '@/model/schedule';
+import {
+  TL_COLOR_PALETTE,
+  colorBtnBackground,
+  titleBarBackground,
+} from '@/ui/color-palette';
 import { encodeConfigs, parseCSV, decodeConfigs } from '@/services/csv-codec';
 import { renderTimeline } from '@/ui/timeline';
 import { createRecurrenceWizard } from '@/ui/recurrence-wizard';
@@ -85,6 +90,28 @@ function fmtDate(d: Date): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+// ---- 活动类型常量（v1 内置 4 类型）----
+const BUILTIN_TYPES = ['default', 'festival', 'gift', 'feature'];
+const BUILTIN_TYPE_OPTIONS = [
+  { value: 'default', name: '默认' },
+  { value: 'festival', name: '活动' },
+  { value: 'gift', name: '礼包' },
+  { value: 'feature', name: '功能' },
+];
+
+/** 从 activityMeta 派生自定义类型（剔内置，去重保序） */
+function collectCustomTypes(metas: ActivityMeta[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const m of metas) {
+    if (m.activityType && !BUILTIN_TYPES.includes(m.activityType) && !seen.has(m.activityType)) {
+      seen.add(m.activityType);
+      out.push(m.activityType);
+    }
+  }
+  return out;
+}
+
 export function renderApp(store: Store, root: HTMLElement): void {
   root.innerHTML = `
     <div class="container">
@@ -121,6 +148,8 @@ export function renderApp(store: Store, root: HTMLElement): void {
 
   // 行拖拽当前 dragId（闭包变量，dragstart 写入 / drop 读取 / dragend 清空）
   let rowDragId: string | null = null;
+  // 颜色选择器"点击外部关闭"的 document 监听（renderForm 重渲染前先移除旧的，避免泄漏）
+  let docClickHandler: ((e: MouseEvent) => void) | null = null;
 
   // ---- 列表渲染（搜索/排序/折叠/discardUnsaved 守卫）----
   function renderList(): void {
@@ -368,7 +397,24 @@ export function renderApp(store: Store, root: HTMLElement): void {
     const dur = parseDuration(parseInt(merged.duration, 10) || 0);
     const mondayHintStyle = needsMonday(recurVal) ? 'color:var(--color-warning);' : 'display:none;';
 
-    let html = `<div class="form-title-bar" id="formTitleBar"><div class="section-title">编辑配置 · ${escapeHtml(getActivityName(config, metaMap))}<span style="color:var(--color-text-tertiary);font-size:12px;font-weight:normal;">（${escapeHtml(config.activityKey || '未命名')}）</span><span id="draftMarker" style="color:var(--color-warning);font-size:12px;">${draftMarkerText}</span></div></div>`;
+    const enabledVal = merged.enabled === '1';
+    const barColor = state.settings.uiSettings.barColors[config.id] ?? '';
+    const titleBg = titleBarBackground(barColor);
+    let html = `<div class="form-title-bar" id="formTitleBar"${titleBg ? ` style="background:${titleBg};"` : ''}>
+      <div class="title-left">
+        <label class="switch-toggle"><input type="checkbox" id="enabledToggle" ${enabledVal ? 'checked' : ''}><span class="switch-slider"></span></label>
+        <span id="enabledLabel" style="color:${enabledVal ? 'var(--color-success)' : 'var(--color-danger)'};font-weight:${enabledVal ? '600' : '400'};font-size:13px;">${enabledVal ? '已启用' : '已停用'}</span>
+        <div class="title-text">${escapeHtml(getActivityName(config, metaMap))}<span style="color:var(--color-text-tertiary);font-size:12px;">（${escapeHtml(config.activityKey || '未命名')}）</span><span id="draftMarker" style="color:var(--color-warning);font-size:12px;">${draftMarkerText}</span></div>
+      </div>
+      <div class="title-right">
+        <div style="position:relative;"><button type="button" id="colorBtn" class="color-btn" style="background:${colorBtnBackground(barColor)};" title="活动颜色">🎨</button><div id="colorDropdown" class="color-dropdown"></div></div>
+        <button class="btn btn-success btn-sm" id="saveBtn">💾 保存</button>
+        <button class="btn btn-secondary btn-sm" id="copyBtn">复制</button>
+        <button class="btn btn-danger btn-sm" id="delBtn">删除</button>
+        <button class="btn btn-secondary btn-sm" id="cancelBtn">取消</button>
+        <button class="btn btn-secondary btn-sm" id="exportBtn">导出</button>
+      </div>
+    </div>`;
 
     html += '<div class="edit-grid">';
     // ===== 左列：基础信息 =====
@@ -376,6 +422,16 @@ export function renderApp(store: Store, root: HTMLElement): void {
     html += inputField('activityKey', '活动Key', config, draft, { required: true });
     html += inputField('dependency', '依赖活动', config, draft, { readonly: true });
     html += inputField('mutex', '互斥活动', config, draft, { readonly: true });
+    // 活动类型 + 活动名称（来自 activityMeta join，编辑写 activityMeta 而非 config）
+    const meta = metaMap[config.activityKey];
+    const curType = meta?.activityType ?? 'default';
+    const customTypes = collectCustomTypes(state.settings.activityMeta);
+    const isCustomType = !BUILTIN_TYPES.includes(curType);
+    const typeOpts = [...BUILTIN_TYPE_OPTIONS, ...customTypes.map((t) => ({ value: t, name: t }))]
+      .map((o) => `<option value="${o.value}"${o.value === curType ? ' selected' : ''}>${escapeHtml(o.name)}</option>`)
+      .join('') + '<option value="__new__">+ 新增类型...</option>';
+    html += `<div class="form-row"><div class="form-group"><label>活动类型</label><div style="display:flex;gap:6px;"><select id="activityTypeSelect">${typeOpts}</select><button type="button" id="deleteTypeBtn" class="btn btn-danger btn-sm" style="display:${isCustomType ? 'inline-block' : 'none'};padding:4px 8px;font-size:11px;">删除</button></div></div><div class="form-group"><label>活动名称</label><input id="activityNameInput" value="${escapeHtml(meta?.activityName ?? '')}"></div></div>`;
+    html += `<div class="form-group"><label>活动描述</label><input id="activityDescInput" value="${escapeHtml(meta?.activityDescription ?? '')}"></div>`;
     html += inputField('skin', '皮肤配置', config, draft, {});
     html += '<div class="form-group"><label>业务参数（params）</label><div id="paramsHost"></div></div>';
     html += '</div>';
@@ -391,9 +447,6 @@ export function renderApp(store: Store, root: HTMLElement): void {
     // 底部：可折叠「配置详情与实际结果」区
     html += `<div class="schedule-collapse"><div class="schedule-collapse-header" id="scheduleCollapseHeader"><span id="scheduleCollapseIcon">▼</span> 配置详情与实际结果</div><div class="schedule-collapse-body" id="scheduleCollapseBody"><div id="actualScheduleResult" class="as-grid"></div></div></div>`;
 
-    // 按钮区
-    html += `<div class="form-actions"><button class="btn btn-success btn-sm" id="saveBtn">💾 保存（入撤销栈）</button><button class="btn btn-secondary btn-sm" id="cancelBtn">取消（丢弃草稿）</button><button class="btn btn-secondary btn-sm" id="copyBtn">复制</button><button class="btn btn-danger btn-sm" id="delBtn">删除</button><button class="btn btn-secondary btn-sm" id="exportBtn">导出 CSV</button></div>`;
-
     formEl.innerHTML = html;
 
     // 字段编辑 → 写草稿（input 事件实时写，不碰 committed，不入栈）
@@ -403,6 +456,156 @@ export function renderApp(store: Store, root: HTMLElement): void {
         store.dispatch({ type: 'DRAFT_EDIT', payload: { field, value: input.value } });
       });
     });
+
+    // 启用开关 → draft.enabled（'1'/'0'）+ label 实时更新
+    const enabledToggle = formEl.querySelector<HTMLInputElement>('#enabledToggle');
+    const enabledLabel = formEl.querySelector<HTMLElement>('#enabledLabel');
+    enabledToggle?.addEventListener('change', () => {
+      const on = enabledToggle.checked;
+      store.dispatch({ type: 'DRAFT_EDIT', payload: { field: 'enabled', value: on ? '1' : '0' } });
+      if (enabledLabel) {
+        enabledLabel.textContent = on ? '已启用' : '已停用';
+        enabledLabel.style.color = on ? 'var(--color-success)' : 'var(--color-danger)';
+        enabledLabel.style.fontWeight = on ? '600' : '400';
+      }
+    });
+
+    // activityType / activityName / activityDescription → 写 activityMeta（按 activityKey）
+    const typeSelect = formEl.querySelector<HTMLSelectElement>('#activityTypeSelect');
+    const deleteTypeBtn = formEl.querySelector<HTMLElement>('#deleteTypeBtn');
+    typeSelect?.addEventListener('change', () => {
+      const v = typeSelect.value;
+      if (v === '__new__') {
+        // 新增自定义类型（prompt → activityMeta 新条目 + activityTypeOrder 追加）
+        typeSelect.value = (metaMap[config.activityKey]?.activityType ?? 'gift');
+        const newKey = prompt('请输入新活动类型的标识（如：特殊活动）：');
+        if (!newKey || !newKey.trim()) return;
+        const k = newKey.trim();
+        const st = store.getState();
+        const metas = st.settings.activityMeta;
+        if (!metas.some((m) => m.activityKey === k)) {
+          const nextMetas = [
+            ...metas,
+            { activityKey: k, activityName: k, activityType: k, activityDescription: '' },
+          ];
+          store.dispatch({ type: 'SETTINGS_PATCH', payload: { activityMeta: nextMetas } });
+        }
+        const order = st.settings.uiSettings.activityTypeOrder;
+        if (!order.includes(k)) {
+          store.dispatch({
+            type: 'SETTINGS_PATCH',
+            payload: { uiSettings: { ...st.settings.uiSettings, activityTypeOrder: [...order, k] } },
+          });
+        }
+        // 当前配置 activityKey 切到新类型（写 activityMeta：若该 key 无 meta 则新建）
+        updateActivityMeta(config.activityKey, { activityType: k });
+        renderForm();
+        alert('已添加新活动类型：' + k);
+        return;
+      }
+      updateActivityMeta(config.activityKey, { activityType: v });
+      // 更新删除按钮显隐（内置类型隐藏）
+      if (deleteTypeBtn) {
+        deleteTypeBtn.style.display = BUILTIN_TYPES.includes(v) ? 'none' : 'inline-block';
+      }
+    });
+    deleteTypeBtn?.addEventListener('click', () => {
+      const st = store.getState();
+      const cur = selectActivityMetaMap(st)[config.activityKey]?.activityType ?? 'default';
+      if (BUILTIN_TYPES.includes(cur)) {
+        alert('系统默认类型不能删除');
+        return;
+      }
+      const configsArr = selectConfigsArray(st);
+      const metaMapNow = selectActivityMetaMap(st);
+      const inUse = configsArr.filter(
+        (c) => getActivityType(c, metaMapNow) === cur && c.activityKey !== config.activityKey,
+      );
+      if (inUse.length > 0) {
+        alert(
+          '该类型仍被以下配置使用，请先将它们改为其他类型：\n' +
+            inUse.map((c) => getActivityName(c, metaMapNow)).join('、'),
+        );
+        return;
+      }
+      if (!confirm(`确定要删除活动类型 "${cur}" 吗？`)) return;
+      // 从 activityMeta 移除该 type 的所有条目 + activityTypeOrder splice
+      const nextMetas = st.settings.activityMeta.filter((m) => m.activityType !== cur);
+      const order = st.settings.uiSettings.activityTypeOrder.filter((t) => t !== cur);
+      store.dispatch({
+        type: 'SETTINGS_PATCH',
+        payload: {
+          activityMeta: nextMetas,
+          uiSettings: { ...st.settings.uiSettings, activityTypeOrder: order },
+        },
+      });
+      // 当前配置 activityKey 的 type 回退 gift（v1 保真）
+      updateActivityMeta(config.activityKey, { activityType: 'gift' });
+      renderForm();
+      alert('已删除活动类型：' + cur);
+    });
+    formEl.querySelector<HTMLInputElement>('#activityNameInput')?.addEventListener('input', (e) => {
+      updateActivityMeta(config.activityKey, { activityName: (e.target as HTMLInputElement).value });
+    });
+    formEl.querySelector<HTMLInputElement>('#activityDescInput')?.addEventListener('input', (e) => {
+      updateActivityMeta(config.activityKey, {
+        activityDescription: (e.target as HTMLInputElement).value,
+      });
+    });
+
+    // 颜色选择器：渲染色板 + 下拉切换 + 选中即时落盘（SETTINGS_PATCH barColors，不入 history）
+    const colorBtn = formEl.querySelector<HTMLElement>('#colorBtn');
+    const colorDropdown = formEl.querySelector<HTMLElement>('#colorDropdown');
+    if (colorBtn && colorDropdown) {
+      const selected = barColor;
+      const cells = TL_COLOR_PALETTE.flat()
+        .map(
+          (c) =>
+            `<div class="color-cell${c.toLowerCase() === selected.toLowerCase() ? ' selected' : ''}" data-color="${c}" style="background:${c};"></div>`,
+        )
+        .join('');
+      colorDropdown.innerHTML = `<div class="color-grid">${cells}</div><div class="color-custom-row"><input type="color" id="customColorInput" value="${selected || '#4472C4'}"><span>自定义</span></div>`;
+      colorBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        colorDropdown.classList.toggle('open');
+        // 边缘翻转（右侧/下方不足时翻转）
+        const r = colorBtn.getBoundingClientRect();
+        colorDropdown.style.left = r.right + 200 > window.innerWidth ? 'auto' : '0';
+        colorDropdown.style.right = r.right + 200 > window.innerWidth ? '0' : 'auto';
+        colorDropdown.style.top =
+          r.bottom + 240 > window.innerHeight ? `-${240}px` : `${colorBtn.offsetHeight + 6}px`;
+      });
+      const pick = (color: string) => {
+        const st = store.getState();
+        const ui = st.settings.uiSettings;
+        store.dispatch({
+          type: 'SETTINGS_PATCH',
+          payload: {
+            uiSettings: { ...ui, barColors: { ...ui.barColors, [config.id]: color } },
+          },
+        });
+        colorDropdown.classList.remove('open');
+        colorBtn.style.background = colorBtnBackground(color);
+        const tb = formEl.querySelector<HTMLElement>('#formTitleBar');
+        const bg = titleBarBackground(color);
+        if (tb) tb.style.background = bg || '';
+      };
+      colorDropdown.querySelectorAll<HTMLElement>('.color-cell').forEach((cell) => {
+        cell.addEventListener('click', () => pick(cell.dataset.color ?? ''));
+      });
+      colorDropdown.querySelector<HTMLInputElement>('#customColorInput')?.addEventListener('change', (e) => {
+        pick((e.target as HTMLInputElement).value);
+      });
+      // 点击外部关闭（重渲染前移除旧 handler）
+      if (docClickHandler) document.removeEventListener('click', docClickHandler);
+      docClickHandler = (ev: MouseEvent) => {
+        const t = ev.target as Node;
+        if (!colorBtn.contains(t) && !colorDropdown.contains(t)) {
+          colorDropdown.classList.remove('open');
+        }
+      };
+      document.addEventListener('click', docClickHandler);
+    }
 
     // duration 天/时/分 → 合并秒数 → 草稿；超循环周期长度 alert 不写入（v1 保真）
     const durDays = formEl.querySelector<HTMLInputElement>('#durDays');
@@ -573,9 +776,26 @@ export function renderApp(store: Store, root: HTMLElement): void {
     });
   }
 
-  // ---- 表单派生预览：cycleEndPreview + 折叠结果区（draft 变化时刷新）----
-  function currentMerged(): Config | null {
+  // ---- activityMeta 编辑：改 activityType/Name/Description 写 settings.activityMeta（即时，不入 history）----
+  function updateActivityMeta(key: string, patch: Partial<ActivityMeta>): void {
     const st = store.getState();
+    const metas = st.settings.activityMeta;
+    const idx = metas.findIndex((m) => m.activityKey === key);
+    let nextMetas: ActivityMeta[];
+    if (idx >= 0) {
+      nextMetas = metas.map((m, i) => (i === idx ? { ...m, ...patch } : m));
+    } else {
+      // key 无 meta，新建一条（activityType 回退 gift）
+      nextMetas = [
+        ...metas,
+        { activityKey: key, activityName: '', activityType: 'gift', activityDescription: '', ...patch },
+      ];
+    }
+    store.dispatch({ type: 'SETTINGS_PATCH', payload: { activityMeta: nextMetas } });
+  }
+
+  // ---- 表单派生预览：cycleEndPreview + 折叠结果区（draft 变化时刷新）----
+  function currentMerged(): Config | null {    const st = store.getState();
     const id = st.ui.selectedConfigId;
     const cfg = id ? st.configs[id] ?? null : null;
     if (!cfg) return null;
