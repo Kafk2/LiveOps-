@@ -53,10 +53,11 @@ export function createRecurrenceWizard(opts: {
   let editorHost: HTMLElement;
   let previewEl: HTMLElement;
 
-  function emit(): void {
+  function emit(silent = false): void {
     const mode = getRecurrenceMode(state.mode);
     const arr = mode ? mode.build(state) : [1];
-    opts.onChange(JSON.stringify(arr));
+    // silent=true 时仅刷新 preview，不写 draft（初始化渲染用，避免点开配置即污染草稿）
+    if (!silent) opts.onChange(JSON.stringify(arr));
     if (previewEl) {
       previewEl.textContent = '预览：' + (mode ? mode.preview(arr) : '') + '  →  ' + JSON.stringify(arr);
     }
@@ -108,7 +109,7 @@ export function createRecurrenceWizard(opts: {
     previewEl = document.createElement('div');
     previewEl.style.cssText = 'margin-top:8px;font-size:12px;color:var(--color-primary);';
     root.appendChild(previewEl);
-    emit();
+    emit(true); // 初始化仅刷新 preview，不触发 onChange（用户交互才写 draft）
   }
 
   render();
