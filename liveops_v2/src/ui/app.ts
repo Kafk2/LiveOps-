@@ -18,10 +18,17 @@ import {
   getActivityType,
 } from '@/core/selectors';
 import { isEnabled, Config, TabKey } from '@/core/types';
-import { CSV_SCHEMA } from '@/schema/csv-schema';
 import { runNormalizers } from '@/schema/validators';
 import { createEmptyConfig, copyConfig } from '@/model/config';
 import { parseRecurrenceValue } from '@/model/recurrence/builtin';
+import {
+  parseDuration,
+  mergeDuration,
+  endDateToCycleCount,
+  cycleCountToEndDateString,
+  validateDurationAgainstPeriod,
+} from '@/model/cycle';
+import { calculateActualSchedules } from '@/model/schedule';
 import { encodeConfigs, parseCSV, decodeConfigs } from '@/services/csv-codec';
 import { renderTimeline } from '@/ui/timeline';
 import { createRecurrenceWizard } from '@/ui/recurrence-wizard';
@@ -50,6 +57,32 @@ function escapeHtml(s: string): string {
 function needsMonday(recurrenceValue: string): boolean {
   const mode = parseRecurrenceValue(recurrenceValue);
   return mode === 'weekly' || mode === 'biweekly';
+}
+
+/** 生成普通字段 input 行（含 dirty 边框、required/readonly 标记） */
+function inputField(
+  key: string,
+  label: string,
+  config: Config,
+  draft: Partial<Record<string, string>> | null,
+  opts: { required?: boolean; readonly?: boolean },
+): string {
+  const draftVal = draft?.[key];
+  const committedVal = (config as unknown as Record<string, string>)[key] ?? '';
+  const val = draftVal ?? committedVal;
+  const readonly = opts.readonly ? 'readonly style="background:#f5f5f5;"' : '';
+  const req = opts.required ? ' <span style="color:var(--color-danger)">*</span>' : '';
+  const dirty =
+    draftVal !== undefined && draftVal !== committedVal
+      ? ' style="border-color:var(--color-warning);"'
+      : '';
+  return `<div class="form-group"><label>${escapeHtml(label)}${req}</label><input data-field="${escapeHtml(key)}" value="${escapeHtml(val)}" ${readonly}${dirty}></div>`;
+}
+
+/** Date → YYYY-MM-DD HH:MM */
+function fmtDate(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 export function renderApp(store: Store, root: HTMLElement): void {
@@ -326,40 +359,40 @@ export function renderApp(store: Store, root: HTMLElement): void {
 
     const draft = store.getState().editor.draft;
     const draftMarkerText = draft ? ' ● 未保存' : '';
-    let html = `<div class="section-title">编辑配置 · ${escapeHtml(config.activityKey || '(未命名)')}<span id="draftMarker" style="color:var(--color-warning);font-size:12px;">${draftMarkerText}</span></div>`;
-    for (const f of CSV_SCHEMA) {
-      if (f.key === 'recurrenceValue') {
-        html += `<div class="form-group"><label>recurrenceValue</label><div id="recurrenceWizardHost"></div></div>`;
-        continue;
-      }
-      if (f.key === 'params') {
-        html += `<div class="form-group"><label>params</label><div id="paramsHost"></div></div>`;
-        continue;
-      }
-      const draftVal = draft?.[f.key];
-      const committedVal = (config as unknown as Record<string, string>)[f.key] ?? '';
-      const val = draftVal ?? committedVal;
-      const readonly = f.derived ? 'readonly style="background:#f5f5f5;"' : '';
-      const req = f.required ? ' <span style="color:var(--color-danger)">*</span>' : '';
-      const dirty =
-        draftVal !== undefined && draftVal !== committedVal
-          ? ' style="border-color:var(--color-warning);"'
-          : '';
-      // scheduleStartDate：weekly/biweekly 时显示周一要求 hint（随 recurrence 模式实时显隐）
-      const recurVal = draft?.recurrenceValue ?? config.recurrenceValue;
-      const hint =
-        f.key === 'scheduleStartDate'
-          ? `<div id="startDateHint" class="hint" style="${needsMonday(recurVal) ? 'color:var(--color-warning);' : 'display:none;'}">每周/双周循环要求开始日期为周一（保存时自动校正）</div>`
-          : '';
-      html += `<div class="form-group"><label>${escapeHtml(f.key)}${req}</label><input data-field="${escapeHtml(f.key)}" value="${escapeHtml(val)}" ${readonly}${dirty}>${hint}</div>`;
-    }
-    html += `<div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;">
-      <button class="btn btn-success btn-sm" id="saveBtn">💾 保存（入撤销栈）</button>
-      <button class="btn btn-secondary btn-sm" id="cancelBtn">取消（丢弃草稿）</button>
-      <button class="btn btn-secondary btn-sm" id="copyBtn">复制</button>
-      <button class="btn btn-danger btn-sm" id="delBtn">删除</button>
-      <button class="btn btn-secondary btn-sm" id="exportBtn">导出 CSV</button>
-    </div>`;
+    const metaMap = selectActivityMetaMap(state);
+    // 合并视图：draft 覆盖 committed（preview/结果区用，不改 committed）
+    const merged = { ...config, ...(draft ?? {}) } as Config;
+    const recurVal = merged.recurrenceValue;
+    const startVal = merged.scheduleStartDate;
+    const cycleCountVal = endDateToCycleCount(startVal, merged.scheduleEndDate, recurVal);
+    const dur = parseDuration(parseInt(merged.duration, 10) || 0);
+    const mondayHintStyle = needsMonday(recurVal) ? 'color:var(--color-warning);' : 'display:none;';
+
+    let html = `<div class="form-title-bar" id="formTitleBar"><div class="section-title">编辑配置 · ${escapeHtml(getActivityName(config, metaMap))}<span style="color:var(--color-text-tertiary);font-size:12px;font-weight:normal;">（${escapeHtml(config.activityKey || '未命名')}）</span><span id="draftMarker" style="color:var(--color-warning);font-size:12px;">${draftMarkerText}</span></div></div>`;
+
+    html += '<div class="edit-grid">';
+    // ===== 左列：基础信息 =====
+    html += '<div class="edit-col">';
+    html += inputField('activityKey', '活动Key', config, draft, { required: true });
+    html += inputField('dependency', '依赖活动', config, draft, { readonly: true });
+    html += inputField('mutex', '互斥活动', config, draft, { readonly: true });
+    html += inputField('skin', '皮肤配置', config, draft, {});
+    html += '<div class="form-group"><label>业务参数（params）</label><div id="paramsHost"></div></div>';
+    html += '</div>';
+    // ===== 右列：排期 =====
+    html += '<div class="edit-col">';
+    html += '<div class="form-group"><label>循环规则</label><div id="recurrenceWizardHost"></div></div>';
+    html += `<div class="form-group"><label>持续时间</label><div class="dur-row"><div><label class="mini-label">天</label><input type="number" id="durDays" min="0" value="${dur.days}"></div><div><label class="mini-label">时</label><input type="number" id="durHours" min="0" value="${dur.hours}"></div><div><label class="mini-label">分</label><input type="number" id="durMinutes" min="0" value="${dur.minutes}"></div><div><label class="mini-label">总计(秒)</label><div id="durTotal" class="dur-total">${escapeHtml(merged.duration)}</div></div></div></div>`;
+    html += `<div class="form-row"><div class="form-group"><label>开始日期 <span style="color:var(--color-danger)">*</span></label><input type="date" data-field="scheduleStartDate" value="${escapeHtml(startVal)}"><div id="startDateHint" class="hint" style="${mondayHintStyle}">每周/双周循环要求开始日期为周一（保存时自动校正）</div></div><div class="form-group"><label>循环次数</label><input type="number" id="cycleCount" min="1" placeholder="留空=无限循环" value="${escapeHtml(cycleCountVal)}"><div id="cycleEndPreview" class="hint"></div></div></div>`;
+    html += `<div class="form-group"><label>开启时间</label><input type="time" data-field="startTime" value="${escapeHtml(merged.startTime)}"></div>`;
+    html += '</div>';
+    html += '</div>';
+
+    // 底部：可折叠「配置详情与实际结果」区
+    html += `<div class="schedule-collapse"><div class="schedule-collapse-header" id="scheduleCollapseHeader"><span id="scheduleCollapseIcon">▼</span> 配置详情与实际结果</div><div class="schedule-collapse-body" id="scheduleCollapseBody"><div id="actualScheduleResult" class="as-grid"></div></div></div>`;
+
+    // 按钮区
+    html += `<div class="form-actions"><button class="btn btn-success btn-sm" id="saveBtn">💾 保存（入撤销栈）</button><button class="btn btn-secondary btn-sm" id="cancelBtn">取消（丢弃草稿）</button><button class="btn btn-secondary btn-sm" id="copyBtn">复制</button><button class="btn btn-danger btn-sm" id="delBtn">删除</button><button class="btn btn-secondary btn-sm" id="exportBtn">导出 CSV</button></div>`;
 
     formEl.innerHTML = html;
 
@@ -369,6 +402,53 @@ export function renderApp(store: Store, root: HTMLElement): void {
         const field = input.dataset.field as keyof Config;
         store.dispatch({ type: 'DRAFT_EDIT', payload: { field, value: input.value } });
       });
+    });
+
+    // duration 天/时/分 → 合并秒数 → 草稿；超循环周期长度 alert 不写入（v1 保真）
+    const durDays = formEl.querySelector<HTMLInputElement>('#durDays');
+    const durHours = formEl.querySelector<HTMLInputElement>('#durHours');
+    const durMinutes = formEl.querySelector<HTMLInputElement>('#durMinutes');
+    const durTotal = formEl.querySelector<HTMLElement>('#durTotal');
+    const handleDur = () => {
+      const secs = mergeDuration(
+        Number(durDays?.value),
+        Number(durHours?.value),
+        Number(durMinutes?.value),
+      );
+      const st = store.getState();
+      const rv = st.editor.draft?.recurrenceValue ?? config.recurrenceValue;
+      const v = validateDurationAgainstPeriod(secs, rv);
+      if (!v.ok) {
+        alert(
+          `持续时间（${secs}秒）超过循环周期长度（${Math.floor(v.maxSeconds / 86400)}天），未保存。请缩短持续时间或增加循环周期。`,
+        );
+        return;
+      }
+      if (durTotal) durTotal.textContent = String(secs);
+      store.dispatch({ type: 'DRAFT_EDIT', payload: { field: 'duration', value: String(secs) } });
+    };
+    durDays?.addEventListener('change', handleDur);
+    durHours?.addEventListener('change', handleDur);
+    durMinutes?.addEventListener('change', handleDur);
+
+    // 循环次数 → 派生 scheduleEndDate（scheduleEndDate 不再直接编辑，由循环次数驱动）
+    const cycleCountInput = formEl.querySelector<HTMLInputElement>('#cycleCount');
+    cycleCountInput?.addEventListener('input', () => {
+      const cc = cycleCountInput.value.trim();
+      const st = store.getState();
+      const d = st.editor.draft;
+      const start = d?.scheduleStartDate ?? config.scheduleStartDate;
+      const rv = d?.recurrenceValue ?? config.recurrenceValue;
+      const endDate = cc ? cycleCountToEndDateString(start, cc, rv) : '';
+      store.dispatch({ type: 'DRAFT_EDIT', payload: { field: 'scheduleEndDate', value: endDate } });
+    });
+
+    // 折叠「配置详情与实际结果」
+    formEl.querySelector('#scheduleCollapseHeader')?.addEventListener('click', () => {
+      const body = formEl.querySelector('#scheduleCollapseBody');
+      const icon = formEl.querySelector('#scheduleCollapseIcon');
+      body?.classList.toggle('collapsed');
+      if (icon) icon.textContent = body?.classList.contains('collapsed') ? '▶' : '▼';
     });
 
     // 循环模式 wizard（recurrenceValue 不用 input，用受控插件 wizard）
@@ -435,6 +515,10 @@ export function renderApp(store: Store, root: HTMLElement): void {
       }
     }
 
+    // 初始渲染 cycleEndPreview + 折叠结果区（draft 变化时由订阅刷新）
+    updateCycleEndPreview();
+    renderActualSchedule();
+
     formEl.querySelector('#cancelBtn')?.addEventListener('click', () => {
       store.dispatch({ type: 'DRAFT_RESET' });
       renderForm();
@@ -445,6 +529,11 @@ export function renderApp(store: Store, root: HTMLElement): void {
       const draftNow = store.getState().editor.draft ?? {};
       const st = store.getState().settings;
       const activityKey = draftNow.activityKey ?? config.activityKey;
+      // 校验 activityKey 非空（v1 保真）
+      if (!activityKey || !activityKey.trim()) {
+        alert('活动Key不能为空，请填写后再保存');
+        return;
+      }
       const dep = st.dependencies
         .filter((d) => d.child === activityKey)
         .map((d) => d.parent)
@@ -482,6 +571,113 @@ export function renderApp(store: Store, root: HTMLElement): void {
       const url = URL.createObjectURL(blob);
       exportEl.innerHTML = `<a href="${url}" download="schedule_v2.csv" class="btn btn-primary btn-sm">⬇ 下载 schedule_v2.csv</a>`;
     });
+  }
+
+  // ---- 表单派生预览：cycleEndPreview + 折叠结果区（draft 变化时刷新）----
+  function currentMerged(): Config | null {
+    const st = store.getState();
+    const id = st.ui.selectedConfigId;
+    const cfg = id ? st.configs[id] ?? null : null;
+    if (!cfg) return null;
+    return { ...cfg, ...(st.editor.draft ?? {}) } as Config;
+  }
+
+  // 循环次数下方：最后结束时间预览（展开 recurrence 找第 N 次开启日 + duration）
+  function updateCycleEndPreview(): void {
+    const el = formEl.querySelector('#cycleEndPreview');
+    if (!el) return;
+    const cfg = currentMerged();
+    if (!cfg) return;
+    const cc = endDateToCycleCount(cfg.scheduleStartDate, cfg.scheduleEndDate, cfg.recurrenceValue);
+    if (cc && cfg.scheduleStartDate && cfg.startTime) {
+      const durSec = parseInt(cfg.duration, 10) || 0;
+      let rv: number[] = [1];
+      try {
+        const parsed = JSON.parse(cfg.recurrenceValue || '[1]');
+        if (Array.isArray(parsed)) rv = parsed;
+      } catch {
+        // 回退 [1]
+      }
+      const count = parseInt(cc, 10);
+      let found = 0;
+      let lastDate: Date | null = null;
+      for (let d = 1; d <= 3650 && found < count; d++) {
+        if (rv[(d - 1) % rv.length] === 1) {
+          found++;
+          if (found === count) {
+            lastDate = new Date(cfg.scheduleStartDate);
+            lastDate.setDate(lastDate.getDate() + (d - 1));
+          }
+        }
+      }
+      if (lastDate) {
+        const parts = cfg.startTime.split(':').map(Number);
+        lastDate.setHours(parts[0] ?? 0, parts[1] ?? 0, 0, 0);
+        const end = new Date(lastDate.getTime() + durSec * 1000);
+        el.innerHTML = `<span style="color:var(--color-success);">结束时间：${fmtDate(end)}</span>`;
+      } else {
+        el.innerHTML = '';
+      }
+    } else if (!cc && cfg.scheduleStartDate && cfg.startTime) {
+      el.innerHTML = '<span style="color:var(--color-text-tertiary);">无限循环</span>';
+    } else {
+      el.innerHTML = '';
+    }
+  }
+
+  // 折叠结果区：左=配置详情 10 行，右=前 5 期表格（v1 renderActualSchedule 保真）
+  function renderActualSchedule(): void {
+    const el = formEl.querySelector('#actualScheduleResult');
+    if (!el) return;
+    const cfg = currentMerged();
+    if (!cfg) return;
+    if (!cfg.scheduleStartDate) {
+      el.innerHTML =
+        '<div style="grid-column:1/-1;text-align:center;padding:16px;color:var(--color-text-tertiary);">请设置开始日期后查看结果</div>';
+      return;
+    }
+    const st = store.getState();
+    const metaMap = selectActivityMetaMap(st);
+    const schedules = calculateActualSchedules(cfg);
+    const durationHours = (parseInt(cfg.duration, 10) || 86400) / 3600;
+    const startTime = cfg.startTime || '10:00';
+    let rv: number[] = [1];
+    try {
+      const parsed = JSON.parse(cfg.recurrenceValue || '[1]');
+      if (Array.isArray(parsed)) rv = parsed;
+    } catch {
+      // 回退
+    }
+    const row = (label: string, val: string) =>
+      `<div style="line-height:1.8;"><span style="color:var(--color-text-tertiary);">${escapeHtml(label)}</span> ${escapeHtml(val)}</div>`;
+    const left = `<div class="as-left">
+      <div style="color:var(--color-primary);font-weight:600;margin-bottom:4px;">配置详情</div>
+      ${row('ID:', cfg.id)}
+      ${row('Key:', cfg.activityKey || '-')}
+      ${row('依赖:', cfg.dependency || '-')}
+      ${row('互斥:', cfg.mutex || '-')}
+      ${row('开始日期:', cfg.scheduleStartDate)}
+      ${row('开始时间:', startTime)}
+      ${row('结束:', cfg.scheduleEndDate || '无限循环')}
+      ${row('规则:', '[' + rv.join(',') + ']')}
+      ${row('持续:', durationHours + 'h')}
+      ${row('类型:', getActivityType(cfg, metaMap))}
+    </div>`;
+    const display = schedules.slice(0, 5);
+    const right = `<div class="as-right">
+      <div style="color:var(--color-text-secondary);margin-bottom:6px;"><b>前${display.length}期</b>（共${schedules.length}期）</div>
+      ${display.length === 0
+        ? '<div style="text-align:center;color:var(--color-text-tertiary);">请设置开始日期后查看结果</div>'
+        : `<table class="as-table"><thead><tr><th>期数</th><th>开启</th><th>结束</th></tr></thead><tbody>
+          ${display
+            .map(
+              (p) =>
+                `<tr><td>第${p.period}期</td><td style="color:var(--color-success);">${fmtDate(new Date(p.openTime))}</td><td style="color:var(--color-danger);">${fmtDate(new Date(p.closeTime))}</td></tr>`,
+            )
+            .join('')}
+        </tbody></table>`}
+    </div>`;
+    el.innerHTML = left + right;
   }
 
   renderList();
@@ -543,6 +739,9 @@ export function renderApp(store: Store, root: HTMLElement): void {
       const rv = st.editor.draft?.recurrenceValue ?? cfg?.recurrenceValue ?? '';
       h.style.display = needsMonday(rv) ? '' : 'none';
     }
+    // cycleEndPreview + 折叠结果区随 draft 实时刷新（duration/日期/循环次数/循环规则变更）
+    updateCycleEndPreview();
+    renderActualSchedule();
   });
   // history 状态变化 → status 刷新
   store.subscribeHistory(() => renderList());

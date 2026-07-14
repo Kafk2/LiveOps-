@@ -154,3 +154,114 @@
   background: #ffebee;
   color: var(--color-danger);
 }
+
+/* ===== 编辑表单：两列布局（v1 edit-grid 保真）===== */
+.form-title-bar {
+  margin-bottom: var(--space-md);
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--color-primary);
+}
+
+.edit-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-xl);
+}
+
+.edit-col {
+  min-width: 0;
+}
+
+.form-actions {
+  margin-top: var(--space-lg);
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+/* duration 天/时/分行 */
+.dur-row {
+  display: grid;
+  grid-template-columns: 70px 70px 70px 1fr;
+  gap: 6px;
+  align-items: end;
+}
+
+.dur-row input {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-md);
+}
+
+.mini-label {
+  display: block;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  margin-bottom: 2px;
+}
+
+.dur-total {
+  padding: 5px 6px;
+  background: #f5f5f5;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+/* 折叠「配置详情与实际结果」区 */
+.schedule-collapse {
+  margin-top: var(--space-lg);
+  border-top: 1px solid var(--color-border);
+}
+
+.schedule-collapse-header {
+  padding: var(--space-sm) 0;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-primary);
+  user-select: none;
+}
+
+.schedule-collapse-body {
+  overflow: hidden;
+}
+
+.schedule-collapse-body.collapsed {
+  display: none;
+}
+
+/* 实际结果区：双列 grid */
+.as-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+
+.as-left {
+  font-size: 11px;
+  border-right: 1px solid var(--color-border);
+  padding-right: 12px;
+}
+
+.as-right {
+  padding-left: 12px;
+}
+
+.as-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.as-table th {
+  background: #f5f5f5;
+  border: 1px solid #ddd;
+  padding: 4px 6px;
+  text-align: left;
+}
+
+.as-table td {
+  border: 1px solid #eee;
+  padding: 3px 6px;
+}
