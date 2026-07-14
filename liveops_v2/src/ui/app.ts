@@ -23,6 +23,8 @@ import { createEmptyConfig, copyConfig } from '@/model/config';
 import { encodeConfigs } from '@/services/csv-codec';
 import { renderTimeline } from '@/ui/timeline';
 import { createRecurrenceWizard } from '@/ui/recurrence-wizard';
+import { renderSchemaTab } from '@/ui/schema-tab';
+import { resolveParamsSchema } from '@/schema/params-schema';
 
 const TABS: { key: TabKey; label: string; enabled: boolean }[] = [
   { key: 'config', label: '配置管理', enabled: true },
@@ -30,7 +32,7 @@ const TABS: { key: TabKey; label: string; enabled: boolean }[] = [
   { key: 'mutex', label: '互斥组', enabled: false },
   { key: 'timeline', label: '时间轴', enabled: true },
   { key: 'compare', label: '版本对比', enabled: false },
-  { key: 'schema', label: 'Schema 编辑', enabled: false },
+  { key: 'schema', label: 'Schema 编辑', enabled: true },
 ];
 
 function escapeHtml(s: string): string {
@@ -62,6 +64,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
           <section class="config-form" id="configForm"></section>
         </div>
         <div id="timelineTab" style="display:none;padding:20px;"></div>
+        <div id="schemaTab" style="display:none;"></div>
       </main>
       <div id="exportArea" style="margin-top:16px;"></div>
     </div>
@@ -145,6 +148,10 @@ export function renderApp(store: Store, root: HTMLElement): void {
         html += `<div class="form-group"><label>recurrenceValue</label><div id="recurrenceWizardHost"></div></div>`;
         continue;
       }
+      if (f.key === 'params') {
+        html += `<div class="form-group"><label>params</label><div id="paramsHost"></div></div>`;
+        continue;
+      }
       const draftVal = draft?.[f.key];
       const committedVal = (config as unknown as Record<string, string>)[f.key] ?? '';
       const val = draftVal ?? committedVal;
@@ -187,6 +194,57 @@ export function renderApp(store: Store, root: HTMLElement): void {
       wizardHost.appendChild(wizard.getElement());
     }
 
+    // params 结构化字段（按 resolveParamsSchema 渲染；无 schema 时回退 json input）
+    const paramsHost = formEl.querySelector<HTMLElement>('#paramsHost');
+    if (paramsHost) {
+      const state = store.getState();
+      const meta = selectActivityMetaMap(state)[config.activityKey];
+      const activityType = meta?.activityType ?? 'unknown';
+      const schemaFields = resolveParamsSchema(
+        state.settings.paramsSchemas,
+        config.activityKey,
+        activityType,
+      );
+      const draftNow = store.getState().editor.draft;
+      const paramsStr = draftNow?.params ?? config.params;
+      let paramsObj: Record<string, unknown> = {};
+      try {
+        const p = JSON.parse(paramsStr);
+        if (p && typeof p === 'object' && !Array.isArray(p)) paramsObj = p as Record<string, unknown>;
+      } catch {
+        // 脏 JSON：回退 json input
+      }
+      if (schemaFields.length === 0) {
+        const ta = document.createElement('textarea');
+        ta.rows = 3;
+        ta.value = paramsStr;
+        ta.style.cssText = 'width:100%;padding:6px;border:1px solid var(--color-border);border-radius:4px;font-family:monospace;font-size:12px;';
+        ta.addEventListener('change', () =>
+          store.dispatch({ type: 'DRAFT_EDIT', payload: { field: 'params', value: ta.value } }),
+        );
+        paramsHost.appendChild(ta);
+      } else {
+        const update = (key: string, val: unknown) => {
+          const next = { ...paramsObj, [key]: val };
+          store.dispatch({ type: 'DRAFT_EDIT', payload: { field: 'params', value: JSON.stringify(next) } });
+        };
+        for (const sf of schemaFields) {
+          const wrap = document.createElement('div');
+          wrap.style.cssText = 'margin-bottom:6px;';
+          const lbl = document.createElement('label');
+          lbl.textContent = sf.key + (sf.required ? ' *' : '');
+          lbl.style.cssText = 'display:block;font-size:12px;margin-bottom:2px;';
+          wrap.appendChild(lbl);
+          const input = document.createElement('input');
+          input.value = String(paramsObj[sf.key] ?? sf.default ?? '');
+          input.style.cssText = 'width:100%;padding:4px;border:1px solid var(--color-border);border-radius:3px;';
+          input.addEventListener('change', () => update(sf.key, input.value));
+          wrap.appendChild(input);
+          paramsHost.appendChild(wrap);
+        }
+      }
+    }
+
     formEl.querySelector('#cancelBtn')?.addEventListener('click', () => {
       store.dispatch({ type: 'DRAFT_RESET' });
       renderForm();
@@ -226,6 +284,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
   const navEl = root.querySelector('#navTabs') as HTMLElement;
   const configTabEl = root.querySelector('#configTab') as HTMLElement;
   const timelineTabEl = root.querySelector('#timelineTab') as HTMLElement;
+  const schemaTabEl = root.querySelector('#schemaTab') as HTMLElement;
 
   function syncTabs(): void {
     const active = store.getState().ui.activeTab;
@@ -234,6 +293,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
     });
     configTabEl.style.display = active === 'config' ? '' : 'none';
     timelineTabEl.style.display = active === 'timeline' ? '' : 'none';
+    schemaTabEl.style.display = active === 'schema' ? '' : 'none';
   }
   navEl.querySelectorAll<HTMLButtonElement>('.nav-tab').forEach((btn) => {
     if (btn.disabled) return;
@@ -246,6 +306,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
   });
   syncTabs();
   renderTimeline(store, timelineTabEl);
+  renderSchemaTab(store, schemaTabEl);
 
   // 订阅：configsArray 变 → 列表刷新；selectedConfigId 变 → 表单刷新
   store.subscribe(selectConfigsArray, () => renderList());

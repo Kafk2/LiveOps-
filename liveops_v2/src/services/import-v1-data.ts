@@ -134,9 +134,18 @@ export async function loadV1Data(): Promise<{ configs: Config[]; settings: Setti
     }
   }
 
-  // ---- settings.json → 失败用默认 ----
-  const settingsJson = await fetchJson<Settings>('./data/settings.json');
-  const settings: Settings = settingsJson ?? getDefaultSettings();
+  // ---- settings.json → 合并默认（补齐 paramsSchemas 等 v2 新字段）→ 失败用默认 ----
+  const settingsJson = await fetchJson<Partial<Settings>>('./data/settings.json');
+  const baseSettings = getDefaultSettings();
+  const settings: Settings = {
+    ...baseSettings,
+    ...(settingsJson ?? {}),
+    uiSettings: {
+      ...baseSettings.uiSettings,
+      ...(settingsJson?.uiSettings ?? {}),
+    },
+    paramsSchemas: settingsJson?.paramsSchemas ?? baseSettings.paramsSchemas,
+  };
 
   return { configs, settings };
 }
@@ -151,14 +160,16 @@ export async function loadV1Data(): Promise<{ configs: Config[]; settings: Setti
  */
 export async function injectV1Data(store: Store): Promise<void> {
   const { configs, settings } = await loadV1Data();
-  store.dispatch({
-    type: 'CONFIGS_REPLACE',
-    payload: configs,
-    meta: { skipHistory: true },
-  });
+  // 先 settings 后 configs：configs 变更触发列表渲染时 activityMeta 已就绪，
+  // 配置才能正确按 activityType 分组（否则全落 unknown）
   store.dispatch({
     type: 'SETTINGS_REPLACE',
     payload: settings,
+    meta: { skipHistory: true },
+  });
+  store.dispatch({
+    type: 'CONFIGS_REPLACE',
+    payload: configs,
     meta: { skipHistory: true },
   });
 }
