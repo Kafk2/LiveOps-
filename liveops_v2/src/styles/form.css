@@ -161,6 +161,99 @@
   display: block;
 }
 
+/* ===== segments 可视化构建器 ===== */
+.seg-builder {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  background: var(--color-bg);
+}
+
+.seg-group {
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  margin: 4px 0;
+  background: white;
+}
+
+.seg-group[data-op="and"] {
+  border-left: 3px solid var(--color-success);
+}
+
+.seg-group[data-op="or"] {
+  border-left: 3px solid var(--color-warning);
+}
+
+.seg-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.seg-op-btn {
+  font-weight: 600;
+}
+
+.seg-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.seg-cond {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 4px 6px;
+  background: #fafafa;
+  border-radius: var(--radius-sm);
+}
+
+.seg-cond select,
+.seg-cond input {
+  padding: 3px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  font-size: var(--font-sm);
+}
+
+.seg-param {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.seg-param label {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.seg-param input {
+  width: 80px;
+}
+
+.seg-addbar {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.seg-preview {
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: #f0f5ff;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-family: monospace;
+  color: var(--color-primary);
+  word-break: break-all;
+}
+
 .status-badge {
   display: inline-block;
   padding: var(--space-xs) var(--space-sm);

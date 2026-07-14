@@ -42,6 +42,7 @@ import { resolveParamsSchema } from '@/schema/params-schema';
 import { renderDependencyTab, renderMutexTab } from '@/ui/relation-tabs';
 import { renderActivityMgmtTab } from '@/ui/activity-management-tab';
 import { renderSegmentTab } from '@/ui/segment-tab';
+import { createSegmentBuilder } from '@/ui/segment-builder';
 
 const TABS: { key: TabKey; label: string; enabled: boolean }[] = [
   { key: 'config', label: '配置管理', enabled: true },
@@ -523,6 +524,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
     const skinDisplay = parseSkinList(draft?.skin ?? config.skin).join(',');
     html += `<div class="form-group"><label>皮肤配置</label><input id="skinInput" value="${escapeHtml(skinDisplay)}" placeholder="如 CCD01,CCD02"><div class="hint">逗号分隔，无需 []</div></div>`;
     html += '<div class="form-group"><label>业务参数（params）</label><div id="paramsHost"></div></div>';
+    html += '<div class="form-group"><label>玩家条件（segments）</label><div id="segmentsHost"></div></div>';
     html += '</div>';
     // ===== 右列：排期 =====
     html += '<div class="edit-col">';
@@ -768,6 +770,19 @@ export function renderApp(store: Store, root: HTMLElement): void {
           paramsHost.appendChild(wrap);
         }
       }
+    }
+
+    // segments 可视化构建器（从 config/draft.segments 解析树，编辑写 draft.segments）
+    const segmentsHost = formEl.querySelector<HTMLElement>('#segmentsHost');
+    if (segmentsHost) {
+      const draftNow = store.getState().editor.draft;
+      const segVal = draftNow?.segments ?? config.segments;
+      const builder = createSegmentBuilder({
+        value: segVal,
+        segmentKeys: store.getState().settings.segmentKeys,
+        onChange: (v) => store.dispatch({ type: 'DRAFT_EDIT', payload: { field: 'segments', value: v } }),
+      });
+      segmentsHost.appendChild(builder.getElement());
     }
 
     // 初始渲染 cycleEndPreview + 折叠结果区（draft 变化时由订阅刷新）
