@@ -127,13 +127,32 @@ export interface Settings {
   mutexGroups: MutexGroup[];
   uiSettings: UISettings;
   paramsSchemas: ParamsSchemas; // v2 新增：activityKey → 字段定义
+  segmentKeys: SegmentKeyDef[]; // segmentKey 注册表（玩家分群条件 key 定义）
 }
+
+// ============================================================================
+// Segment —— 玩家条件表达式（segments 字段）
+// ============================================================================
+
+/** segmentKey 注册表条目：定义一种玩家分群条件及其两参数语义 */
+export interface SegmentKeyDef {
+  key: string; // segmentKey，如 userLevel
+  name: string; // 显示名，如 玩家等级
+  param1Label: string; // 参数1标签，如 最小等级
+  param2Label: string; // 参数2标签，如 最大等级
+  description?: string; // 说明
+}
+
+/** segments 表达式树（可视化构建器编辑对象） */
+export type SegmentExpr =
+  | { type: 'condition'; key: string; param1: string; param2: string; negate: boolean }
+  | { type: 'group'; op: 'and' | 'or'; children: SegmentExpr[]; negate: boolean };
 
 // ============================================================================
 // AppState —— normalized by-id state
 // ============================================================================
 
-export type TabKey = 'config' | 'activityMgmt' | 'dependency' | 'mutex' | 'timeline' | 'compare' | 'schema' | 'version';
+export type TabKey = 'config' | 'activityMgmt' | 'segment' | 'dependency' | 'mutex' | 'timeline' | 'compare' | 'schema' | 'version';
 
 export interface UIState {
   activeTab: TabKey;

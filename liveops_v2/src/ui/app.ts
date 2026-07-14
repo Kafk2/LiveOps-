@@ -41,10 +41,12 @@ import { renderSchemaTab } from '@/ui/schema-tab';
 import { resolveParamsSchema } from '@/schema/params-schema';
 import { renderDependencyTab, renderMutexTab } from '@/ui/relation-tabs';
 import { renderActivityMgmtTab } from '@/ui/activity-management-tab';
+import { renderSegmentTab } from '@/ui/segment-tab';
 
 const TABS: { key: TabKey; label: string; enabled: boolean }[] = [
   { key: 'config', label: '配置管理', enabled: true },
   { key: 'activityMgmt', label: '活动管理', enabled: true },
+  { key: 'segment', label: '玩家分群', enabled: true },
   { key: 'dependency', label: '依赖关系', enabled: true },
   { key: 'mutex', label: '互斥组', enabled: true },
   { key: 'timeline', label: '时间轴', enabled: true },
@@ -136,6 +138,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
         <div id="dependencyTab" style="display:none;"></div>
         <div id="mutexTab" style="display:none;"></div>
         <div id="activityMgmtTab" style="display:none;padding:20px;"></div>
+        <div id="segmentTab" style="display:none;padding:20px;"></div>
       </main>
       <div id="exportArea" style="margin-top:16px;"></div>
     </div>
@@ -939,6 +942,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
   const dependencyTabEl = root.querySelector('#dependencyTab') as HTMLElement;
   const mutexTabEl = root.querySelector('#mutexTab') as HTMLElement;
   const activityMgmtTabEl = root.querySelector('#activityMgmtTab') as HTMLElement;
+  const segmentTabEl = root.querySelector('#segmentTab') as HTMLElement;
 
   function syncTabs(): void {
     const active = store.getState().ui.activeTab;
@@ -951,6 +955,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
     dependencyTabEl.style.display = active === 'dependency' ? '' : 'none';
     mutexTabEl.style.display = active === 'mutex' ? '' : 'none';
     activityMgmtTabEl.style.display = active === 'activityMgmt' ? '' : 'none';
+    segmentTabEl.style.display = active === 'segment' ? '' : 'none';
   }
   navEl.querySelectorAll<HTMLButtonElement>('.nav-tab').forEach((btn) => {
     if (btn.disabled) return;
@@ -967,6 +972,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
   renderDependencyTab(store, dependencyTabEl);
   renderMutexTab(store, mutexTabEl);
   renderActivityMgmtTab(store, activityMgmtTabEl);
+  renderSegmentTab(store, segmentTabEl);
 
   // 订阅：configsArray 变 → 列表刷新；selectedConfigId 变 → 表单刷新
   store.subscribe(selectConfigsArray, () => renderList());

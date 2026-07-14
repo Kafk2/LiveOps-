@@ -20,6 +20,7 @@
 import type { Config, Settings } from '@/core/types';
 import type { Store } from '@/core/store';
 import { parseCSV, decodeConfigs } from '@/services/csv-codec';
+import { DEFAULT_SEGMENT_KEYS } from '@/model/segment-expr';
 
 // ----------------------------------------------------------------------------
 // getDefaultSettings —— fetch 失败时的最小合法 Settings 兜底
@@ -48,6 +49,7 @@ export function getDefaultSettings(): Settings {
       barColors: {},
     },
     paramsSchemas: {},
+    segmentKeys: DEFAULT_SEGMENT_KEYS,
   };
 }
 
