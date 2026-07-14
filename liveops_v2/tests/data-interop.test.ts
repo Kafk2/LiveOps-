@@ -88,6 +88,24 @@ describe('CSV 编解码（v1 互通）', () => {
     const configs = decodeConfigs([header, row]);
     expect(configs[0]!.duration).toBe('86400'); // duration 缺失 → default
   });
+
+  it('skin 逗号分隔 round-trip（彻底无 []，含逗号自动引号包裹）', () => {
+    const c: Config = { ...v1Configs[0]!, skin: 'CCD01,CCD02' };
+    const csv = encodeConfigs([c]);
+    // skin 列含逗号 → CSV 引号包裹；全程不含 [ ]
+    expect(csv).toContain('"CCD01,CCD02"');
+    const configs2 = decodeConfigs(parseCSV(csv));
+    expect(configs2[0]!.skin).toBe('CCD01,CCD02');
+  });
+
+  it('params 缺失列用 default="" 填充（无 {}），enabled 缺失用 fd.default', () => {
+    const header = 'id,activityKey'.split(',');
+    const row = ['1', 'OpenBox'];
+    const configs = decodeConfigs([header, row]);
+    expect(configs[0]!.params).toBe(''); // params 默认空（连 {} 都没有）
+    expect(configs[0]!.enabled).toBe('1'); // enabled 缺失 → fd.default '1'
+    expect(configs[0]!.mutex).toBe('[]'); // mutex 缺失 → fd.default '[]'
+  });
 });
 
 describe('calculateActualSchedules 边界（迁移自 v1）', () => {

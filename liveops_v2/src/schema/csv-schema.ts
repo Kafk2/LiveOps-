@@ -27,7 +27,7 @@ export const CSV_SCHEMA: CsvFieldDef[] = [
   { key: 'recurrenceValue', fieldType: 'recurrence', csvColumn: 7, default: '[1]' },
   { key: 'skin', fieldType: 'json', csvColumn: 8 },
   { key: 'segments', fieldType: 'json', csvColumn: 9 },
-  { key: 'params', fieldType: 'json', csvColumn: 10, default: '{}' },
+  { key: 'params', fieldType: 'json', csvColumn: 10, default: '' },
   { key: 'dependency', fieldType: 'derived', csvColumn: 11, derived: true, default: '' },
   { key: 'mutex', fieldType: 'derived', csvColumn: 12, derived: true, default: '[]' },
 ];

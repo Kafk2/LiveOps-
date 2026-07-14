@@ -25,7 +25,7 @@ export function createEmptyConfig(activityKey = ''): Config {
     recurrenceValue: '[1]',
     skin: '',
     segments: '',
-    params: '{}',
+    params: '',
     dependency: '',
     mutex: '[]',
   };

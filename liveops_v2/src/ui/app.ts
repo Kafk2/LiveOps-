@@ -93,8 +93,8 @@ function fmtDate(d: Date): string {
 }
 
 /**
- * 解析 skin 字符串为皮肤列表（兼容 v1 JSON 数组 `["a","b"]` 与逗号分隔 `a,b`）。
- * 底层存储仍用 JSON 数组（CSV 互通），UI 用逗号分隔编辑。
+ * 解析 skin 字符串为皮肤列表（兼容旧 v1 JSON 数组 `["a","b"]` 与逗号分隔 `a,b`）。
+ * 底层存储用逗号分隔（彻底无 []），CSV 列含逗号自动引号包裹。
  */
 function parseSkinList(s: string): string[] {
   const str = (s ?? '').trim();
@@ -457,14 +457,14 @@ export function renderApp(store: Store, root: HTMLElement): void {
       });
     });
 
-    // 皮肤配置：逗号分隔 → JSON 数组存储（兼容 v1 CSV）
+    // 皮肤配置：逗号分隔存储（彻底无 []，CSV 列含逗号时自动引号包裹）
     const skinInput = formEl.querySelector<HTMLInputElement>('#skinInput');
     skinInput?.addEventListener('change', () => {
       const list = skinInput.value
         .split(',')
         .map((s) => s.trim())
         .filter((s) => s.length);
-      store.dispatch({ type: 'DRAFT_EDIT', payload: { field: 'skin', value: JSON.stringify(list) } });
+      store.dispatch({ type: 'DRAFT_EDIT', payload: { field: 'skin', value: list.join(',') } });
     });
 
     // activityKey 搜索选择（combobox）：从已注册 activityMeta 过滤，点选写入草稿
@@ -650,11 +650,13 @@ export function renderApp(store: Store, root: HTMLElement): void {
       const draftNow = store.getState().editor.draft;
       const paramsStr = draftNow?.params ?? config.params;
       let paramsObj: Record<string, unknown> = {};
-      try {
-        const p = JSON.parse(paramsStr);
-        if (p && typeof p === 'object' && !Array.isArray(p)) paramsObj = p as Record<string, unknown>;
-      } catch {
-        // 脏 JSON：回退 json input
+      if (paramsStr) {
+        try {
+          const p = JSON.parse(paramsStr);
+          if (p && typeof p === 'object' && !Array.isArray(p)) paramsObj = p as Record<string, unknown>;
+        } catch {
+          // 脏 JSON：忽略，按空对象渲染（保存时不写脏值）
+        }
       }
       if (schemaFields.length === 0) {
         // 无 Params Schema：不可自由编辑（只能配置 Schema 已定义的结构），提示去 Schema 编辑器定义

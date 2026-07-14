@@ -209,14 +209,17 @@ export function decodeConfigs(rows: string[][]): Config[] {
     }
 
     // 缺失的已知列用 default 填充（旧 CSV 没有新加的列）
+    // 优先用 csv-schema 的 fd.default（字段级，如 params='' / enabled='1'），
+    // 否则回退 fieldType.defaultValue()
     for (const fd of fieldDefs) {
       if (!seenKnown.has(fd.key)) {
         const ft = getFieldType(fd.fieldType);
-        values[fd.key] = ft
-          ? toStr(ft.defaultValue())
-          : fd.default != null
+        values[fd.key] =
+          fd.default != null
             ? String(fd.default)
-            : '';
+            : ft
+              ? toStr(ft.defaultValue())
+              : '';
       }
     }
 
