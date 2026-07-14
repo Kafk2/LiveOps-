@@ -66,19 +66,20 @@ export function renderActivityMgmtTab(store: Store, host: HTMLElement): void {
     let html =
       '<div class="am-toolbar"><button class="btn btn-primary btn-sm" id="amNewKeyBtn">+ 注册活动 Key</button>' +
       '<span class="am-hint">管理已注册的活动 Key、名称与所属类型（配置管理从此处选择 Key）</span></div>';
-    html += '<table class="am-table"><thead><tr><th>活动 Key</th><th>活动名称</th><th>活动类型</th><th>引用数</th><th>操作</th></tr></thead><tbody>';
+    html += '<table class="am-table"><thead><tr><th>活动 Key</th><th>活动名称</th><th>活动类型</th><th>活动描述</th><th>引用数</th><th>操作</th></tr></thead><tbody>';
     for (const m of metas) {
       const cnt = keyUsedCount.get(m.activityKey) ?? 0;
       html += `<tr data-key="${escapeHtml(m.activityKey)}">` +
         `<td class="am-key">${escapeHtml(m.activityKey)}</td>` +
         `<td><input class="am-name" data-key="${escapeHtml(m.activityKey)}" value="${escapeHtml(m.activityName)}"></td>` +
         `<td><select class="am-type" data-key="${escapeHtml(m.activityKey)}">${typeOpts(m.activityType)}</select></td>` +
+        `<td><input class="am-desc" data-key="${escapeHtml(m.activityKey)}" value="${escapeHtml(m.activityDescription)}"></td>` +
         `<td class="am-count">${cnt}</td>` +
         `<td><button class="btn btn-danger btn-sm am-del" data-key="${escapeHtml(m.activityKey)}">删除</button></td>` +
         `</tr>`;
     }
     if (metas.length === 0) {
-      html += '<tr><td colspan="5" class="am-empty">尚未注册任何活动 Key，点击上方「注册活动 Key」</td></tr>';
+      html += '<tr><td colspan="6" class="am-empty">尚未注册任何活动 Key，点击上方「注册活动 Key」</td></tr>';
     }
     html += '</tbody></table>';
 
@@ -123,6 +124,11 @@ export function renderActivityMgmtTab(store: Store, host: HTMLElement): void {
     // 改活动名称
     host.querySelectorAll<HTMLInputElement>('.am-name').forEach((inp) => {
       inp.addEventListener('change', () => updateMeta(inp.dataset.key!, { activityName: inp.value }));
+    });
+
+    // 改活动描述
+    host.querySelectorAll<HTMLInputElement>('.am-desc').forEach((inp) => {
+      inp.addEventListener('change', () => updateMeta(inp.dataset.key!, { activityDescription: inp.value }));
     });
 
     // 选活动类型（含新增类型）

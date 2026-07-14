@@ -17,7 +17,7 @@ import {
   getActivityName,
   getActivityType,
 } from '@/core/selectors';
-import { isEnabled, Config, TabKey, ActivityMeta } from '@/core/types';
+import { isEnabled, Config, TabKey } from '@/core/types';
 import { runNormalizers } from '@/schema/validators';
 import { createEmptyConfig, copyConfig } from '@/model/config';
 import { parseRecurrenceValue } from '@/model/recurrence/builtin';
@@ -406,10 +406,10 @@ export function renderApp(store: Store, root: HTMLElement): void {
     html += `<div class="form-group"><label>活动Key <span style="color:var(--color-danger)">*</span></label><div class="combobox" id="activityKeyCombo"><input type="text" id="activityKeySearch" value="${escapeHtml(merged.activityKey)}" placeholder="搜索或选择活动 Key" autocomplete="off"><div class="combobox-list" id="activityKeyList"></div></div><div class="hint">从「活动管理」页签注册的活动 Key 中选择</div></div>`;
     html += inputField('dependency', '依赖活动', config, draft, { readonly: true });
     html += inputField('mutex', '互斥活动', config, draft, { readonly: true });
-    // 活动名称/描述（来自 activityMeta join，编辑写 activityMeta）；活动类型只读（管理移至「活动类型」页签）
+    // 活动描述（只读，跟随 activityKey 从 activityMeta 读取；在「活动管理」页签编辑）
+    // 注：活动名称不在配置表单显示——标题栏已展示
     const meta = metaMap[config.activityKey];
-    html += `<div class="form-group"><label>活动名称</label><input id="activityNameInput" value="${escapeHtml(meta?.activityName ?? '')}"></div>`;
-    html += `<div class="form-group"><label>活动描述</label><input id="activityDescInput" value="${escapeHtml(meta?.activityDescription ?? '')}"></div>`;
+    html += `<div class="form-group"><label>活动描述</label><input id="activityDescDisplay" value="${escapeHtml(meta?.activityDescription ?? '')}" readonly style="background:#f5f5f5;"><div class="hint">在「活动管理」页签编辑</div></div>`;
     html += `<div class="form-group"><label>活动类型</label><input value="${escapeHtml(meta?.activityType ?? 'default')}" readonly style="background:#f5f5f5;"><div class="hint">在「活动类型」页签中拖动活动 Key 改变归属</div></div>`;
     html += inputField('skin', '皮肤配置', config, draft, {});
     html += '<div class="form-group"><label>业务参数（params）</label><div id="paramsHost"></div></div>';
@@ -489,15 +489,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
       }
     });
 
-    // activityName / activityDescription → 写 activityMeta（按 activityKey，失焦提交）
-    formEl.querySelector<HTMLInputElement>('#activityNameInput')?.addEventListener('change', (e) => {
-      updateActivityMeta(config.activityKey, { activityName: (e.target as HTMLInputElement).value });
-    });
-    formEl.querySelector<HTMLInputElement>('#activityDescInput')?.addEventListener('change', (e) => {
-      updateActivityMeta(config.activityKey, {
-        activityDescription: (e.target as HTMLInputElement).value,
-      });
-    });
+    // activityName / activityDescription 为只读跟随（在「活动管理」页签编辑），此处无编辑绑定
 
     // 颜色选择器：渲染色板 + 下拉切换 + 选中即时落盘（SETTINGS_PATCH barColors，不入 history）
     const colorBtn = formEl.querySelector<HTMLElement>('#colorBtn');
@@ -722,24 +714,6 @@ export function renderApp(store: Store, root: HTMLElement): void {
     });
   }
 
-  // ---- activityMeta 编辑：改 activityType/Name/Description 写 settings.activityMeta（即时，不入 history）----
-  function updateActivityMeta(key: string, patch: Partial<ActivityMeta>): void {
-    const st = store.getState();
-    const metas = st.settings.activityMeta;
-    const idx = metas.findIndex((m) => m.activityKey === key);
-    let nextMetas: ActivityMeta[];
-    if (idx >= 0) {
-      nextMetas = metas.map((m, i) => (i === idx ? { ...m, ...patch } : m));
-    } else {
-      // key 无 meta，新建一条（activityType 回退 gift）
-      nextMetas = [
-        ...metas,
-        { activityKey: key, activityName: '', activityType: 'gift', activityDescription: '', ...patch },
-      ];
-    }
-    store.dispatch({ type: 'SETTINGS_PATCH', payload: { activityMeta: nextMetas } });
-  }
-
   // ---- 表单派生预览：cycleEndPreview + 折叠结果区（draft 变化时刷新）----
   function currentMerged(): Config | null {    const st = store.getState();
     const id = st.ui.selectedConfigId;
@@ -916,6 +890,13 @@ export function renderApp(store: Store, root: HTMLElement): void {
     // cycleEndPreview + 折叠结果区随 draft 实时刷新（duration/日期/循环次数/循环规则变更）
     updateCycleEndPreview();
     renderActualSchedule();
+    // activityKey 变 → 刷新活动描述只读（从 activityMeta 读取，跟随 activityKey 联动）
+    const descDisp = root.querySelector<HTMLInputElement>('#activityDescDisplay');
+    if (descDisp) {
+      const cfg = currentMerged();
+      const mm = selectActivityMetaMap(store.getState());
+      descDisp.value = cfg ? mm[cfg.activityKey]?.activityDescription ?? '' : '';
+    }
   });
   // history 状态变化 → status 刷新
   store.subscribeHistory(() => renderList());
