@@ -10,37 +10,20 @@
 import {
   ParamsSchemaRoot,
   ParamsFieldDef,
-  ParamsOverride,
   ValidationResult,
   ValidationError,
 } from '@/core/types';
 
-/** 应用 override 到 base（remove → replace → add 顺序） */
-function applyOverride(base: ParamsFieldDef[], override: ParamsOverride): ParamsFieldDef[] {
-  let result = base.filter((f) => !(override.remove ?? []).includes(f.key));
-  if (override.replace) {
-    result = result.map((f) => {
-      const rep = override.replace![f.key];
-      return rep ? { ...f, ...rep } : f;
-    });
-  }
-  if (override.add) result = [...result, ...override.add];
-  return result;
-}
-
-/** 解析某 activityKey 的最终 params schema = 所属 type 默认 + 个体覆盖 */
+/** 解析某 activityKey 的最终 params schema：per-key 覆盖优先，否则用所属 type 默认 */
 export function resolveParamsSchema(
   root: ParamsSchemaRoot,
   activityKey: string,
   activityType: string,
 ): ParamsFieldDef[] {
-  const base = root.byType[activityType] ?? [];
-  const override = root.overrides[activityKey];
-  if (!override) return [...base];
-  return applyOverride(base, override);
+  return root.overrides[activityKey] ?? root.byType[activityType] ?? [];
 }
 
-/** schema-schema 自校验：字段 key 唯一性（策划编辑器用，critical 25 防护） */
+/** schema-schema 自校验：字段 key 唯一性（byType 与 overrides 均检查） */
 export function validateParamsSchema(root: ParamsSchemaRoot): ValidationResult {
   const errors: ValidationError[] = [];
   for (const [type, fields] of Object.entries(root.byType)) {
@@ -49,7 +32,20 @@ export function validateParamsSchema(root: ParamsSchemaRoot): ValidationResult {
       if (seen.has(f.key)) {
         errors.push({
           field: f.key,
-          message: `类型「${type}」内字段 key 重复：${f.key}`,
+          message: `类型「${type}」默认 schema 内字段 key 重复：${f.key}`,
+          severity: 'error',
+        });
+      }
+      seen.add(f.key);
+    }
+  }
+  for (const [key, fields] of Object.entries(root.overrides)) {
+    const seen = new Set<string>();
+    for (const f of fields) {
+      if (seen.has(f.key)) {
+        errors.push({
+          field: f.key,
+          message: `activityKey「${key}」覆盖 schema 内字段 key 重复：${f.key}`,
           severity: 'error',
         });
       }

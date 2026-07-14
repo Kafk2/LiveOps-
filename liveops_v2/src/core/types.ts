@@ -118,17 +118,11 @@ export interface ParamsFieldDef {
   deprecated?: boolean;
 }
 
-export interface ParamsOverride {
-  add?: ParamsFieldDef[];
-  remove?: string[]; // 要移除的子字段 key
-  replace?: Record<string, Partial<ParamsFieldDef>>; // 修改某字段属性
-}
-
 export interface ParamsSchemaRoot {
   /** activityType → 默认 params 字段定义 */
   byType: Record<string, ParamsFieldDef[]>;
-  /** activityKey → 覆盖（继承所属 type 默认后增删改） */
-  overrides: Record<string, ParamsOverride>;
+  /** activityKey → 完整覆盖（若有，替代所属 type 默认；无则用 type 默认） */
+  overrides: Record<string, ParamsFieldDef[]>;
   version: number; // schema 版本号，用于数据迁移
 }
 
