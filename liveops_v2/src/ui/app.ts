@@ -40,9 +40,11 @@ import { createRecurrenceWizard } from '@/ui/recurrence-wizard';
 import { renderSchemaTab } from '@/ui/schema-tab';
 import { resolveParamsSchema } from '@/schema/params-schema';
 import { renderDependencyTab, renderMutexTab } from '@/ui/relation-tabs';
+import { renderActivityTypeTab } from '@/ui/activity-type-tab';
 
 const TABS: { key: TabKey; label: string; enabled: boolean }[] = [
   { key: 'config', label: '配置管理', enabled: true },
+  { key: 'activityType', label: '活动类型', enabled: true },
   { key: 'dependency', label: '依赖关系', enabled: true },
   { key: 'mutex', label: '互斥组', enabled: true },
   { key: 'timeline', label: '时间轴', enabled: true },
@@ -90,28 +92,6 @@ function fmtDate(d: Date): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-// ---- 活动类型常量（v1 内置 4 类型）----
-const BUILTIN_TYPES = ['default', 'festival', 'gift', 'feature'];
-const BUILTIN_TYPE_OPTIONS = [
-  { value: 'default', name: '默认' },
-  { value: 'festival', name: '活动' },
-  { value: 'gift', name: '礼包' },
-  { value: 'feature', name: '功能' },
-];
-
-/** 从 activityMeta 派生自定义类型（剔内置，去重保序） */
-function collectCustomTypes(metas: ActivityMeta[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const m of metas) {
-    if (m.activityType && !BUILTIN_TYPES.includes(m.activityType) && !seen.has(m.activityType)) {
-      seen.add(m.activityType);
-      out.push(m.activityType);
-    }
-  }
-  return out;
-}
-
 export function renderApp(store: Store, root: HTMLElement): void {
   root.innerHTML = `
     <div class="container">
@@ -136,6 +116,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
         <div id="schemaTab" style="display:none;"></div>
         <div id="dependencyTab" style="display:none;"></div>
         <div id="mutexTab" style="display:none;"></div>
+        <div id="activityTypeTab" style="display:none;padding:20px;"></div>
       </main>
       <div id="exportArea" style="margin-top:16px;"></div>
     </div>
@@ -422,16 +403,11 @@ export function renderApp(store: Store, root: HTMLElement): void {
     html += inputField('activityKey', '活动Key', config, draft, { required: true });
     html += inputField('dependency', '依赖活动', config, draft, { readonly: true });
     html += inputField('mutex', '互斥活动', config, draft, { readonly: true });
-    // 活动类型 + 活动名称（来自 activityMeta join，编辑写 activityMeta 而非 config）
+    // 活动名称/描述（来自 activityMeta join，编辑写 activityMeta）；活动类型只读（管理移至「活动类型」页签）
     const meta = metaMap[config.activityKey];
-    const curType = meta?.activityType ?? 'default';
-    const customTypes = collectCustomTypes(state.settings.activityMeta);
-    const isCustomType = !BUILTIN_TYPES.includes(curType);
-    const typeOpts = [...BUILTIN_TYPE_OPTIONS, ...customTypes.map((t) => ({ value: t, name: t }))]
-      .map((o) => `<option value="${o.value}"${o.value === curType ? ' selected' : ''}>${escapeHtml(o.name)}</option>`)
-      .join('') + '<option value="__new__">+ 新增类型...</option>';
-    html += `<div class="form-row"><div class="form-group"><label>活动类型</label><div style="display:flex;gap:6px;"><select id="activityTypeSelect">${typeOpts}</select><button type="button" id="deleteTypeBtn" class="btn btn-danger btn-sm" style="display:${isCustomType ? 'inline-block' : 'none'};padding:4px 8px;font-size:11px;">删除</button></div></div><div class="form-group"><label>活动名称</label><input id="activityNameInput" value="${escapeHtml(meta?.activityName ?? '')}"></div></div>`;
+    html += `<div class="form-group"><label>活动名称</label><input id="activityNameInput" value="${escapeHtml(meta?.activityName ?? '')}"></div>`;
     html += `<div class="form-group"><label>活动描述</label><input id="activityDescInput" value="${escapeHtml(meta?.activityDescription ?? '')}"></div>`;
+    html += `<div class="form-group"><label>活动类型</label><input value="${escapeHtml(meta?.activityType ?? 'default')}" readonly style="background:#f5f5f5;"><div class="hint">在「活动类型」页签中拖动活动 Key 改变归属</div></div>`;
     html += inputField('skin', '皮肤配置', config, draft, {});
     html += '<div class="form-group"><label>业务参数（params）</label><div id="paramsHost"></div></div>';
     html += '</div>';
@@ -470,80 +446,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
       }
     });
 
-    // activityType / activityName / activityDescription → 写 activityMeta（按 activityKey）
-    const typeSelect = formEl.querySelector<HTMLSelectElement>('#activityTypeSelect');
-    const deleteTypeBtn = formEl.querySelector<HTMLElement>('#deleteTypeBtn');
-    typeSelect?.addEventListener('change', () => {
-      const v = typeSelect.value;
-      if (v === '__new__') {
-        // 新增自定义类型（prompt → activityMeta 新条目 + activityTypeOrder 追加）
-        typeSelect.value = (metaMap[config.activityKey]?.activityType ?? 'gift');
-        const newKey = prompt('请输入新活动类型的标识（如：特殊活动）：');
-        if (!newKey || !newKey.trim()) return;
-        const k = newKey.trim();
-        const st = store.getState();
-        const metas = st.settings.activityMeta;
-        if (!metas.some((m) => m.activityKey === k)) {
-          const nextMetas = [
-            ...metas,
-            { activityKey: k, activityName: k, activityType: k, activityDescription: '' },
-          ];
-          store.dispatch({ type: 'SETTINGS_PATCH', payload: { activityMeta: nextMetas } });
-        }
-        const order = st.settings.uiSettings.activityTypeOrder;
-        if (!order.includes(k)) {
-          store.dispatch({
-            type: 'SETTINGS_PATCH',
-            payload: { uiSettings: { ...st.settings.uiSettings, activityTypeOrder: [...order, k] } },
-          });
-        }
-        // 当前配置 activityKey 切到新类型（写 activityMeta：若该 key 无 meta 则新建）
-        updateActivityMeta(config.activityKey, { activityType: k });
-        renderForm();
-        alert('已添加新活动类型：' + k);
-        return;
-      }
-      updateActivityMeta(config.activityKey, { activityType: v });
-      // 更新删除按钮显隐（内置类型隐藏）
-      if (deleteTypeBtn) {
-        deleteTypeBtn.style.display = BUILTIN_TYPES.includes(v) ? 'none' : 'inline-block';
-      }
-    });
-    deleteTypeBtn?.addEventListener('click', () => {
-      const st = store.getState();
-      const cur = selectActivityMetaMap(st)[config.activityKey]?.activityType ?? 'default';
-      if (BUILTIN_TYPES.includes(cur)) {
-        alert('系统默认类型不能删除');
-        return;
-      }
-      const configsArr = selectConfigsArray(st);
-      const metaMapNow = selectActivityMetaMap(st);
-      const inUse = configsArr.filter(
-        (c) => getActivityType(c, metaMapNow) === cur && c.activityKey !== config.activityKey,
-      );
-      if (inUse.length > 0) {
-        alert(
-          '该类型仍被以下配置使用，请先将它们改为其他类型：\n' +
-            inUse.map((c) => getActivityName(c, metaMapNow)).join('、'),
-        );
-        return;
-      }
-      if (!confirm(`确定要删除活动类型 "${cur}" 吗？`)) return;
-      // 从 activityMeta 移除该 type 的所有条目 + activityTypeOrder splice
-      const nextMetas = st.settings.activityMeta.filter((m) => m.activityType !== cur);
-      const order = st.settings.uiSettings.activityTypeOrder.filter((t) => t !== cur);
-      store.dispatch({
-        type: 'SETTINGS_PATCH',
-        payload: {
-          activityMeta: nextMetas,
-          uiSettings: { ...st.settings.uiSettings, activityTypeOrder: order },
-        },
-      });
-      // 当前配置 activityKey 的 type 回退 gift（v1 保真）
-      updateActivityMeta(config.activityKey, { activityType: 'gift' });
-      renderForm();
-      alert('已删除活动类型：' + cur);
-    });
+    // activityName / activityDescription → 写 activityMeta（按 activityKey，失焦提交）
     formEl.querySelector<HTMLInputElement>('#activityNameInput')?.addEventListener('change', (e) => {
       updateActivityMeta(config.activityKey, { activityName: (e.target as HTMLInputElement).value });
     });
@@ -910,6 +813,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
   const schemaTabEl = root.querySelector('#schemaTab') as HTMLElement;
   const dependencyTabEl = root.querySelector('#dependencyTab') as HTMLElement;
   const mutexTabEl = root.querySelector('#mutexTab') as HTMLElement;
+  const activityTypeTabEl = root.querySelector('#activityTypeTab') as HTMLElement;
 
   function syncTabs(): void {
     const active = store.getState().ui.activeTab;
@@ -921,6 +825,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
     schemaTabEl.style.display = active === 'schema' ? '' : 'none';
     dependencyTabEl.style.display = active === 'dependency' ? '' : 'none';
     mutexTabEl.style.display = active === 'mutex' ? '' : 'none';
+    activityTypeTabEl.style.display = active === 'activityType' ? '' : 'none';
   }
   navEl.querySelectorAll<HTMLButtonElement>('.nav-tab').forEach((btn) => {
     if (btn.disabled) return;
@@ -936,6 +841,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
   renderSchemaTab(store, schemaTabEl);
   renderDependencyTab(store, dependencyTabEl);
   renderMutexTab(store, mutexTabEl);
+  renderActivityTypeTab(store, activityTypeTabEl);
 
   // 订阅：configsArray 变 → 列表刷新；selectedConfigId 变 → 表单刷新
   store.subscribe(selectConfigsArray, () => renderList());
