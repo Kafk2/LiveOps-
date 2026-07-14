@@ -37,6 +37,7 @@ const initialState: AppState = {
     listSearch: '',
     listSort: 'duration',
     loadedFile: '',
+    editSelectedIds: {},
     timeline: { sliderPos: 0.625, scrollLeft: 0, showStopped: false, rowHeight: 29 },
   },
   editor: { draft: null },

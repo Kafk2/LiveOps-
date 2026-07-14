@@ -68,6 +68,21 @@ export function reducer(state: AppState, action: Action): AppState {
         configIds: state.configIds.filter((x) => x !== id),
       };
     }
+    case 'CONFIGS_DELETE_BATCH': {
+      // 批量删除（编辑排序多选删除），一次入 history
+      const ids = action.payload as string[];
+      const idSet = new Set(ids);
+      const rest: Record<string, Config> = {};
+      for (const [id, c] of Object.entries(state.configs)) {
+        if (!idSet.has(id)) rest[id] = c;
+      }
+      return {
+        ...state,
+        configs: rest,
+        configIds: state.configIds.filter((x) => !idSet.has(x)),
+        editor: { draft: null },
+      };
+    }
     case 'CONFIG_COPY': {
       const { sourceId, newId, newActivityKey } = action.payload as {
         sourceId: string;
@@ -181,7 +196,7 @@ export function shallowEqual<T>(a: T, b: T): boolean {
 
 export type HistoryScopeKey = 'config' | 'schema';
 
-const COMMIT_CONFIG_TYPES = new Set(['CONFIG_SAVE', 'CONFIG_DELETE', 'CONFIG_COPY']);
+const COMMIT_CONFIG_TYPES = new Set(['CONFIG_SAVE', 'CONFIG_DELETE', 'CONFIG_COPY', 'CONFIGS_DELETE_BATCH']);
 
 interface Subscription {
   selector: Selector<unknown>;
@@ -347,6 +362,8 @@ function commitLabel(action: Action): string {
       return '保存配置';
     case 'CONFIG_DELETE':
       return '删除配置';
+    case 'CONFIGS_DELETE_BATCH':
+      return '批量删除配置';
     case 'CONFIG_COPY':
       return '复制配置';
     default:

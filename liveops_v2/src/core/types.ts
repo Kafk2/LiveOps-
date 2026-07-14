@@ -142,6 +142,8 @@ export interface UIState {
   listSort: 'duration' | 'name' | 'date' | 'custom';
   /** 当前已载入的配置文件名（dev 注入 / CSV 导入），用于状态栏展示 */
   loadedFile: string;
+  /** 编辑排序模式下的多选 id（仅 custom 模式生效，批量拖拽/删除） */
+  editSelectedIds: Record<string, boolean>;
   /** 时间轴 UI 临时态（仅本地，不同步） */
   timeline: TimelineUIState;
 }
@@ -176,6 +178,7 @@ export type ActionType =
   | 'CONFIG_DELETE'
   | 'CONFIG_COPY'
   | 'CONFIGS_REPLACE' // 批量导入 / GitHub pull（skipHistory）
+  | 'CONFIGS_DELETE_BATCH' // 批量删除（编辑排序模式多选删除，入 history）
   // 草稿编辑：不写 committed configs，只更新 editor.draft（不入栈）
   | 'DRAFT_EDIT'
   | 'DRAFT_RESET'

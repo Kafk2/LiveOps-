@@ -66,6 +66,19 @@ function needsMonday(recurrenceValue: string): boolean {
   return mode === 'weekly' || mode === 'biweekly';
 }
 
+/** 触发浏览器直接下载 CSV（不显示下载按钮） */
+function downloadCSV(filename: string, csv: string): void {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 /** draft 是否有字段与 committed 不同（真正改动才显示"未保存"，改回原值不算） */
 function isDirty(draft: Partial<Record<string, string>> | null, config: Config): boolean {
   if (!draft) return false;
@@ -131,7 +144,6 @@ export function renderApp(store: Store, root: HTMLElement): void {
   const listEl = root.querySelector('#configList') as HTMLElement;
   const formEl = root.querySelector('#configForm') as HTMLElement;
   const statusEl = root.querySelector('#status') as HTMLElement;
-  const exportEl = root.querySelector('#exportArea') as HTMLElement;
 
   // 行拖拽当前 dragId（闭包变量，dragstart 写入 / drop 读取 / dragend 清空）
   let rowDragId: string | null = null;
@@ -169,6 +181,9 @@ export function renderApp(store: Store, root: HTMLElement): void {
     </div>`;
     // 搜索行（贴近 v1：搜索 + 排序 + 编辑排序 + 新建）
     const isCustom = sort === 'custom';
+    const selMap = state.ui.editSelectedIds;
+    const selectedCount = Object.keys(selMap).filter((id) => selMap[id]).length;
+    const totalCount = selectConfigsArray(state).length;
     html += `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
       <input id="searchInput" type="text" placeholder="搜索活动名称/key（回车）" value="${escapeHtml(state.ui.listSearch)}" style="flex:1;min-width:140px;padding:6px 8px;border:1px solid var(--color-border);border-radius:4px;">
       <select id="sortSelect" style="padding:6px;border:1px solid var(--color-border);border-radius:4px;">
@@ -178,6 +193,8 @@ export function renderApp(store: Store, root: HTMLElement): void {
         <option value="custom"${sort === 'custom' ? ' selected' : ''}>自定义</option>
       </select>
       <button class="btn ${isCustom ? 'btn-primary' : 'btn-secondary'} btn-sm" id="editOrderBtn">${isCustom ? '✓ 编辑排序中' : '📒 编辑排序'}</button>
+      ${isCustom ? `<button class="btn btn-secondary btn-sm" id="selectAllBtn">${selectedCount >= totalCount && totalCount > 0 ? '取消全选' : '全选'}</button>` : ''}
+      ${isCustom && selectedCount > 0 ? `<button class="btn btn-danger btn-sm" id="batchDelBtn">🗑 删除选中(${selectedCount})</button>` : ''}
       <button class="btn btn-primary btn-sm" id="newBtn">+ 新建</button>
       <input type="file" id="importFile" accept=".csv,text/csv" style="display:none;">
     </div>`;
@@ -235,11 +252,14 @@ export function renderApp(store: Store, root: HTMLElement): void {
           const badge = isEnabled(c)
             ? '<span class="status-badge status-enabled">启用</span>'
             : '<span class="status-badge status-disabled">停用</span>';
-          const dragAttrs =
-            sort === 'custom'
-              ? ' draggable="true"'
-              : '';
-          html += `<tr class="config-row${active}" data-id="${escapeHtml(c.id)}"${dragAttrs}><td>${name}</td><td>${escapeHtml(c.activityKey)}</td><td>${escapeHtml(c.scheduleStartDate)}</td><td>${badge}</td></tr>`;
+          const isCustom = sort === 'custom';
+          const sel = state.ui.editSelectedIds;
+          const selClass = isCustom && sel[c.id] ? ' edit-selected' : '';
+          const cb = isCustom
+            ? `<input type="checkbox" class="edit-cb" data-id="${escapeHtml(c.id)}"${sel[c.id] ? ' checked' : ''} style="margin-right:6px;">`
+            : '';
+          const dragAttrs = isCustom ? ' draggable="true"' : '';
+          html += `<tr class="config-row${active}${selClass}" data-id="${escapeHtml(c.id)}"${dragAttrs}><td>${cb}${name}</td><td>${escapeHtml(c.activityKey)}</td><td>${escapeHtml(c.scheduleStartDate)}</td><td>${badge}</td></tr>`;
         }
         html += '</tbody></table>';
       }
@@ -267,17 +287,46 @@ export function renderApp(store: Store, root: HTMLElement): void {
         payload: { listSort: (e.target as HTMLSelectElement).value as 'duration' | 'name' | 'date' | 'custom' },
       });
     });
-    // 编辑排序：切换 custom 模式（行可拖拽），再次点击退出
+    // 编辑排序：切换 custom 模式（行可拖拽 + 多选），退出时清空多选
     listEl.querySelector('#editOrderBtn')?.addEventListener('click', () => {
       const cur = store.getState().ui.listSort;
-      store.dispatch({ type: 'UI_PATCH', payload: { listSort: cur === 'custom' ? 'duration' : 'custom' } });
+      const next = cur === 'custom' ? 'duration' : 'custom';
+      store.dispatch({ type: 'UI_PATCH', payload: { listSort: next, editSelectedIds: {} } });
     });
-    // 导出全部配置 CSV（位置贴近 v1 标题行）
+    // 全选 / 取消全选（仅 custom 模式）
+    listEl.querySelector('#selectAllBtn')?.addEventListener('click', () => {
+      const st = store.getState();
+      const allIds = selectConfigsArray(st).map((c) => c.id);
+      const cur = st.ui.editSelectedIds;
+      const allSelected = allIds.length > 0 && allIds.every((id) => cur[id]);
+      const nextSel = allSelected
+        ? {}
+        : Object.fromEntries(allIds.map((id) => [id, true] as const));
+      store.dispatch({ type: 'UI_PATCH', payload: { editSelectedIds: nextSel } });
+    });
+    // 批量删除选中（CONFIGS_DELETE_BATCH 一次入 history）
+    listEl.querySelector('#batchDelBtn')?.addEventListener('click', () => {
+      const sel = store.getState().ui.editSelectedIds;
+      const ids = Object.keys(sel).filter((id) => sel[id]);
+      if (ids.length === 0) return;
+      if (!confirm(`确定删除选中的 ${ids.length} 条配置？`)) return;
+      store.dispatch({ type: 'CONFIGS_DELETE_BATCH', payload: ids });
+      store.dispatch({ type: 'UI_PATCH', payload: { editSelectedIds: {} } });
+    });
+    // 多选勾选框（click 阻止冒泡，避免触发选中配置）
+    listEl.querySelectorAll<HTMLInputElement>('.edit-cb').forEach((cb) => {
+      cb.addEventListener('click', (e) => e.stopPropagation());
+      cb.addEventListener('change', () => {
+        const id = cb.dataset.id!;
+        const sel = { ...store.getState().ui.editSelectedIds };
+        if (cb.checked) sel[id] = true;
+        else delete sel[id];
+        store.dispatch({ type: 'UI_PATCH', payload: { editSelectedIds: sel } });
+      });
+    });
+    // 导出全部配置 CSV：直接下载（不显示下载按钮）
     listEl.querySelector('#exportAllBtn')?.addEventListener('click', () => {
-      const csv = encodeConfigs(selectConfigsArray(store.getState()));
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      exportEl.innerHTML = `<a href="${url}" download="schedule_v2.csv" class="btn btn-primary btn-sm">⬇ 下载 schedule_v2.csv</a>`;
+      downloadCSV('schedule_v2.csv', encodeConfigs(selectConfigsArray(store.getState())));
     });
     listEl.querySelector('#newBtn')?.addEventListener('click', () => {
       if (!draftGuard()) return;
@@ -327,7 +376,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
       });
     });
 
-    // 行拖拽排序（仅 custom 模式下行带 draggable；drop 后写回 configOrder[type]）
+    // 行拖拽排序（仅 custom 模式下行带 draggable；多选时带选中行一起移动）
     listEl.querySelectorAll<HTMLElement>('.config-row[draggable="true"]').forEach((row) => {
       row.addEventListener('dragstart', (e) => {
         rowDragId = row.dataset.id ?? null;
@@ -335,12 +384,21 @@ export function renderApp(store: Store, root: HTMLElement): void {
         e.dataTransfer.setData('text/plain', 'row:' + rowDragId);
         e.dataTransfer.effectAllowed = 'move';
         row.classList.add('dragging');
+        // 多选拖拽：若拖拽行已选中且有其他选中，标记 buddy 行（一起移动）
+        const sel = store.getState().ui.editSelectedIds;
+        if (sel[rowDragId]) {
+          listEl.querySelectorAll<HTMLElement>('.config-row[data-id]').forEach((r) => {
+            const rid = r.dataset.id!;
+            if (rid !== rowDragId && sel[rid]) r.classList.add('drag-buddy');
+          });
+        }
       });
       row.addEventListener('dragover', (e) => {
         if (!rowDragId) return;
         e.preventDefault();
         if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-        if (row.dataset.id === rowDragId) return;
+        // 拖拽行/buddy 行不作为 drop 目标
+        if (row.classList.contains('dragging') || row.classList.contains('drag-buddy')) return;
         listEl
           .querySelectorAll('.config-row.drop-above,.config-row.drop-below')
           .forEach((el) => el.classList.remove('drop-above', 'drop-below'));
@@ -357,17 +415,22 @@ export function renderApp(store: Store, root: HTMLElement): void {
         const targetId = row.dataset.id;
         const rect = row.getBoundingClientRect();
         const insertBefore = e.clientY < rect.top + rect.height / 2;
-        // 从 DOM 读取该组当前渲染顺序作为基线（custom 下=configOrder，否则=sort 顺序）
+        // 多选：拖拽行选中且有其他选中 → 移动所有选中；否则只移动拖拽行
+        const sel = store.getState().ui.editSelectedIds;
+        const otherSelected = Object.keys(sel).filter((id) => sel[id] && id !== dragId);
+        const idsToMove = sel[dragId] && otherSelected.length > 0 ? Object.keys(sel).filter((id) => sel[id]) : [dragId];
+        const moveSet = new Set(idsToMove);
+        // 从 DOM 读取该组当前渲染顺序作为基线
         const tbody = row.closest('tbody');
         if (!tbody) return;
         const baseIds = Array.from(tbody.querySelectorAll<HTMLTableRowElement>('tr[data-id]'))
           .map((tr) => tr.dataset.id!)
-          .filter((id) => id !== dragId);
+          .filter((id) => !moveSet.has(id));
         let idx = baseIds.indexOf(targetId);
         if (idx < 0) idx = baseIds.length;
         if (!insertBefore) idx++;
-        baseIds.splice(idx, 0, dragId);
-        // 写回 configOrder[type] 并切到 custom 排序
+        baseIds.splice(idx, 0, ...idsToMove);
+        // 写回 configOrder[type] 并切到 custom 排序；多选时清空选区
         const st = store.getState();
         const metaMap = selectActivityMetaMap(st);
         const cfg = st.configs[dragId];
@@ -378,6 +441,9 @@ export function renderApp(store: Store, root: HTMLElement): void {
           type: 'SETTINGS_PATCH',
           payload: { uiSettings: { ...ui, configOrder: { ...ui.configOrder, [type]: baseIds } } },
         });
+        if (idsToMove.length > 1) {
+          store.dispatch({ type: 'UI_PATCH', payload: { editSelectedIds: {} } });
+        }
         if (st.ui.listSort !== 'custom') {
           store.dispatch({ type: 'UI_PATCH', payload: { listSort: 'custom' } });
         }
@@ -385,8 +451,8 @@ export function renderApp(store: Store, root: HTMLElement): void {
       row.addEventListener('dragend', () => {
         rowDragId = null;
         listEl
-          .querySelectorAll('.config-row.dragging,.config-row.drop-above,.config-row.drop-below')
-          .forEach((el) => el.classList.remove('dragging', 'drop-above', 'drop-below'));
+          .querySelectorAll('.config-row.dragging,.config-row.drag-buddy,.config-row.drop-above,.config-row.drop-below')
+          .forEach((el) => el.classList.remove('dragging', 'drag-buddy', 'drop-above', 'drop-below'));
       });
     });
   }
@@ -750,10 +816,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
     });
 
     formEl.querySelector('#exportBtn')?.addEventListener('click', () => {
-      const csv = encodeConfigs(selectConfigsArray(store.getState()));
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      exportEl.innerHTML = `<a href="${url}" download="schedule_v2.csv" class="btn btn-primary btn-sm">⬇ 下载 schedule_v2.csv</a>`;
+      downloadCSV('schedule_v2.csv', encodeConfigs(selectConfigsArray(store.getState())));
     });
   }
 
@@ -911,6 +974,8 @@ export function renderApp(store: Store, root: HTMLElement): void {
   // configOrder 变 → custom 模式下行序刷新（拖拽 drop 后；同 type 顺序写回）
   store.subscribe((s) => s.settings.uiSettings.configOrder, renderList);
   store.subscribe((s) => s.ui.loadedFile, renderList);
+  // editSelectedIds 变 → custom 模式行选中态/批量按钮计数刷新
+  store.subscribe((s) => s.ui.editSelectedIds, renderList);
   // activityMeta 变 → 列表 name/分组刷新 + 表单折叠结果区刷新（不改表单 input 避免失焦）
   store.subscribe((s) => s.settings.activityMeta, () => {
     renderList();
