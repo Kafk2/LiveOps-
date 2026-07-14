@@ -30,6 +30,8 @@ export interface Config {
   params: string; // JSON string，脏 JSON 原样透传（csv 层 string identity）
   dependency: string; // 派生字段，从 settings.dependencies 反查填充
   mutex: string; // 派生字段，从 settings.mutexGroups 反查填充
+  /** 未知列原值透传：CSV 有但 csv-schema 未定义的列，round-trip 不丢失 */
+  unknownCells?: Record<string, string>;
 }
 
 /** CSV 列顺序（v1 互通，13 列） */
@@ -158,9 +160,9 @@ export interface TimelineUIState {
   rowHeight: number;
 }
 
-/** 编辑器草稿：未应用的字段覆盖，用于时间轴未保存预览（虚线/半透明） */
+/** 编辑器草稿：未应用的字段覆盖（已知列字符串），用于时间轴未保存预览（虚线/半透明） */
 export interface EditorState {
-  draft: Partial<Config> | null;
+  draft: Partial<Record<string, string>> | null;
 }
 
 export interface AppState {

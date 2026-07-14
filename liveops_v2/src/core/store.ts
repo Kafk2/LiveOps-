@@ -100,7 +100,7 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case 'DRAFT_EDIT': {
       // 草稿字段编辑：只写 editor.draft，不碰 committed configs，不入栈
-      const { field, value } = action.payload as { field: keyof Config; value: string };
+      const { field, value } = action.payload as { field: string; value: string };
       const draft = state.editor.draft ? { ...state.editor.draft } : {};
       if (draft[field] === value) return state;
       draft[field] = value;

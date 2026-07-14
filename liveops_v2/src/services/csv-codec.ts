@@ -21,7 +21,7 @@
 
 import { Config } from '@/core/types';
 import { getFieldType } from '@/schema/field-types/registry';
-import { CsvFieldDef, getCsvFieldsOrdered } from '@/schema/csv-schema';
+import { CsvFieldDef, getCsvFieldsOrdered, getCsvFieldByKey } from '@/schema/csv-schema';
 
 // ----------------------------------------------------------------------------
 // 解析状态机
@@ -182,12 +182,6 @@ export function decodeConfigs(rows: string[][]): Config[] {
   if (rows.length === 0) return [];
 
   const header = rows[0] ?? [];
-  const colIndex: Record<string, number> = {};
-  for (let i = 0; i < header.length; i++) {
-    const name = header[i] ?? '';
-    colIndex[name] = i;
-  }
-
   const fieldDefs: CsvFieldDef[] = getCsvFieldsOrdered();
   const configs: Config[] = [];
 
@@ -197,20 +191,32 @@ export function decodeConfigs(rows: string[][]): Config[] {
     if (row.length !== header.length) continue;
 
     const values: Record<string, string> = {};
-    for (const fd of fieldDefs) {
-      const ft = getFieldType(fd.fieldType);
-      if (!ft) {
-        // 未注册类型：回退到 schema default 或空串
-        values[fd.key] = fd.default != null ? String(fd.default) : '';
-        continue;
+    const unknownCells: Record<string, string> = {};
+    const seenKnown = new Set<string>();
+
+    // 按表头遍历：已知列映射 + 类型化 parse，未知列原值保留
+    for (let i = 0; i < header.length; i++) {
+      const colName = header[i] ?? '';
+      const raw = row[i] ?? '';
+      const fd = getCsvFieldByKey(colName);
+      if (fd) {
+        const ft = getFieldType(fd.fieldType);
+        values[fd.key] = ft ? toStr(ft.parse(raw)) : raw;
+        seenKnown.add(colName);
+      } else if (colName !== '') {
+        unknownCells[colName] = raw;
       }
-      const idx = colIndex[fd.key];
-      if (idx === undefined) {
-        // 缺失列：用 fieldType.defaultValue() 填充
-        values[fd.key] = toStr(ft.defaultValue());
-      } else {
-        const raw = row[idx] ?? '';
-        values[fd.key] = toStr(ft.parse(raw));
+    }
+
+    // 缺失的已知列用 default 填充（旧 CSV 没有新加的列）
+    for (const fd of fieldDefs) {
+      if (!seenKnown.has(fd.key)) {
+        const ft = getFieldType(fd.fieldType);
+        values[fd.key] = ft
+          ? toStr(ft.defaultValue())
+          : fd.default != null
+            ? String(fd.default)
+            : '';
       }
     }
 
@@ -232,6 +238,7 @@ export function decodeConfigs(rows: string[][]): Config[] {
       dependency: values['dependency'] ?? '',
       mutex: values['mutex'] ?? '',
     };
+    if (Object.keys(unknownCells).length > 0) config.unknownCells = unknownCells;
     configs.push(config);
   }
 
@@ -253,13 +260,26 @@ export function decodeConfigs(rows: string[][]): Config[] {
 export function encodeConfigs(configs: Config[]): string {
   const fieldDefs: CsvFieldDef[] = getCsvFieldsOrdered();
   const header: string[] = fieldDefs.map((fd) => fd.key);
-  const dataRows: string[][] = configs.map((c) =>
-    fieldDefs.map((fd) => {
+
+  // 收集所有行的未知列 key（首次出现序），输出时追加在已知列后
+  const unknownKeys: string[] = [];
+  for (const c of configs) {
+    if (!c.unknownCells) continue;
+    for (const k of Object.keys(c.unknownCells)) {
+      if (!unknownKeys.includes(k)) unknownKeys.push(k);
+    }
+  }
+  const fullHeader = [...header, ...unknownKeys];
+
+  const dataRows: string[][] = configs.map((c) => {
+    const known = fieldDefs.map((fd) => {
       const ft = getFieldType(fd.fieldType);
       const key = fd.key as keyof Config;
       const v = c[key];
       return ft ? ft.serialize(v) : toStr(v);
-    }),
-  );
-  return serializeCSV([header, ...dataRows]);
+    });
+    const unknown = unknownKeys.map((k) => c.unknownCells?.[k] ?? '');
+    return [...known, ...unknown];
+  });
+  return serializeCSV([fullHeader, ...dataRows]);
 }

@@ -145,7 +145,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
         html += `<div class="form-group"><label>recurrenceValue</label><div id="recurrenceWizardHost"></div></div>`;
         continue;
       }
-      const draftVal = draft?.[f.key as keyof Config];
+      const draftVal = draft?.[f.key];
       const committedVal = (config as unknown as Record<string, string>)[f.key] ?? '';
       const val = draftVal ?? committedVal;
       const readonly = f.derived ? 'readonly style="background:#f5f5f5;"' : '';

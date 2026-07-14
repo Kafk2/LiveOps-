@@ -70,6 +70,22 @@ describe('CSV 编解码（v1 互通）', () => {
       expect(configs2[i]!.duration).toBe(v1Configs[i]!.duration);
     }
   });
+
+  it('未知列 round-trip 保留（csv-schema 未定义的列不丢失）', () => {
+    const header = 'id,activityKey,enabled,scheduleStartDate,scheduleEndDate,startTime,duration,recurrenceValue,skin,segments,params,dependency,mutex,newUnknownCol'.split(',');
+    const row = '1,OpenBox,1,2026-01-01,,10:00,86400,[1],,,{},,[],hello'.split(',');
+    const configs = decodeConfigs([header, row]);
+    expect(configs[0]!.unknownCells?.newUnknownCol).toBe('hello');
+    const configs2 = decodeConfigs(parseCSV(encodeConfigs(configs)));
+    expect(configs2[0]!.unknownCells?.newUnknownCol).toBe('hello');
+  });
+
+  it('缺失的已知列用 default 填充（旧 CSV 没有新加的列）', () => {
+    const header = 'id,activityKey,enabled,scheduleStartDate,scheduleEndDate,startTime,recurrenceValue,skin,segments,params,dependency,mutex'.split(',');
+    const row = '1,OpenBox,1,2026-01-01,,10:00,[1],,,{},,[]'.split(',');
+    const configs = decodeConfigs([header, row]);
+    expect(configs[0]!.duration).toBe('86400'); // duration 缺失 → default
+  });
 });
 
 describe('calculateActualSchedules 边界（迁移自 v1）', () => {
