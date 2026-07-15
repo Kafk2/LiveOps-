@@ -62,6 +62,7 @@
 - **duration**：天/时/分 + 总计秒，超循环周期长度 alert 不写入
 - **循环次数↔scheduleEndDate**：endDate 不直接编辑，由循环次数驱动（cycleCountToEndDateString +1天 trick）
 - **周一校验**：normalizer enforceMondayStartDate，saveBtn 时自动校正 weekly/biweekly
+- **数据持久化（dev 过渡，未接后台前）**：`services/persistence.ts` — settings+configs 自动存 localStorage（debounce 300ms，`bindPersistence`），main 启动优先读缓存（`loadPersisted`）跳过 fetch；Schema 页签有「导出/导入备份」按钮兜底清缓存场景。接公司后台后替换为 BackendAdapter（HTTP API + DB，localStorage 降为读缓存）
 
 ## 测试
 
@@ -69,17 +70,18 @@
 - **71 测试全过**，`npx vitest run`
 - 无 jsdom/Playwright，UI 交互靠 typecheck + 代码自审（无浏览器自动化）
 
-## 当前状态（最近 commit 5c3d53a）
+## 当前状态（本次提交）
 
+- params schema + configs 本地持久化落地（localStorage 自动存 + 导出/导入备份），刷新不丢
 - segments 构建器：树结构，**组级一个且/或**（根顶部 + 嵌套组头，条件行无行首连接符），条件单行紧凑，嵌套组轻微背景+左色条
-- 71 测试 + build 通过
+- 71 测试 + tsc + build 通过
 - 工作树干净
 
 ## 待办候选（下一步，用户定方向）
 
 1. **时间轴 tab** 完善（v1 高性能 Canvas 时间轴复刻到 v2，timeline tab 当前渲染但可能待完善）
 2. **版本对比 tab**（当前 disabled）
-3. **GitHub 同步**（pull/push schedule.csv + settings.json）
+3. **公司后台同步**（接自建后台：HTTP API + DB 存 settings/configs，把 persistence.ts 的 localStorage 实现替换为 BackendAdapter；GitHub 同步已弃，数据走公司后台而非 Git）
 4. **segments 视觉最终确认**（用户多次调整，需 `npm run dev` 实际验证）
 5. 活动管理/玩家分群细节打磨
 

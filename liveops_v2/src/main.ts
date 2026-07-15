@@ -16,6 +16,7 @@ import { registerBuiltinRecurrenceModes } from '@/model/recurrence/builtin';
 import { registerBuiltinNormalizers } from '@/model/normalizers/builtin';
 import { bindHistoryKeyboard } from '@/core/history-keyboard';
 import { getDefaultSettings, injectV1Data } from '@/services/import-v1-data';
+import { bindPersistence, loadPersisted, hydrateFromPersisted } from '@/services/persistence';
 import { renderApp } from '@/ui/app';
 import './styles/theme.css';
 import './styles/layout.css';
@@ -52,6 +53,13 @@ bindHistoryKeyboard(store);
 const appEl = document.getElementById('app');
 if (appEl) {
   renderApp(store, appEl);
-  // 5. dev：自动注入 v1 数据（import-v1-data 多级回退链）
-  injectV1Data(store).catch((e) => console.error('注入 v1 数据失败:', e));
+  // 5. 持久化订阅：先挂，使后续任何 dispatch（缓存回放 / fetch 注入）都被写回本地
+  bindPersistence(store);
+  // 6. 启动数据源：优先本地缓存（刷新不丢），无缓存才走 import-v1-data fetch 链
+  const cached = loadPersisted();
+  if (cached) {
+    hydrateFromPersisted(store, cached, '本地草稿（自动保存）');
+  } else {
+    injectV1Data(store).catch((e) => console.error('注入 v1 数据失败:', e));
+  }
 }

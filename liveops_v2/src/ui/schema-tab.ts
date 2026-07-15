@@ -10,6 +10,7 @@ import type { Store } from '@/core/store';
 import type { ParamsFieldDef, ParamsSchemas } from '@/core/types';
 import { selectSettings } from '@/core/selectors';
 import { validateParamsSchema } from '@/schema/params-schema';
+import { exportBackup, importBackupFromFile } from '@/services/persistence';
 
 const FIELD_TYPES = ['text', 'number', 'boolean', 'date', 'time'];
 
@@ -36,6 +37,13 @@ export function renderSchemaTab(store: Store, root: HTMLElement): void {
       <div style="padding:20px;">
         <div class="section-title">Params Schema 编辑器</div>
         <div style="font-size:12px;color:var(--color-text-tertiary);margin-bottom:12px;">每个活动 Key 独立配置其参数结构（无类型默认）。配置管理界面的 params 区只能编辑此处已定义的字段。</div>
+        <div style="display:flex;gap:12px;align-items:center;margin:8px 0 12px;flex-wrap:wrap;padding:8px 10px;background:#fafafa;border:1px solid var(--color-border);border-radius:4px;">
+          <span style="font-size:12px;color:var(--color-success);">✓ 编辑已自动保存到本地浏览器（刷新不丢）</span>
+          <span style="flex:1;"></span>
+          <button class="btn btn-secondary btn-sm" id="exportBackupBtn" title="把当前设置和配置导出为 JSON 备份文件">⬇ 导出备份</button>
+          <button class="btn btn-secondary btn-sm" id="importBackupBtn" title="从备份文件恢复（覆盖当前数据）">⬆ 导入备份</button>
+          <input type="file" id="importBackupInput" accept="application/json,.json" style="display:none;">
+        </div>
         <div style="margin-bottom:12px;display:flex;gap:12px;align-items:center;">
           <label>activityKey：</label>
           <select id="schemaKeySelect" style="padding:6px;border:1px solid var(--color-border);border-radius:4px;min-width:220px;">${keys.map((k) => `<option value="${escapeHtml(k)}"${k === selectedKey ? ' selected' : ''}>${escapeHtml(k)}</option>`).join('')}</select>
@@ -133,6 +141,17 @@ export function renderSchemaTab(store: Store, root: HTMLElement): void {
         return;
       }
       alert('schema 已保存（SCHEMA_PATCH 入独立 history 栈）');
+    });
+    root.querySelector('#exportBackupBtn')?.addEventListener('click', () => {
+      exportBackup(store);
+    });
+    root.querySelector('#importBackupBtn')?.addEventListener('click', () => {
+      root.querySelector<HTMLInputElement>('#importBackupInput')?.click();
+    });
+    root.querySelector<HTMLInputElement>('#importBackupInput')?.addEventListener('change', (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) importBackupFromFile(file, store);
+      (e.target as HTMLInputElement).value = ''; // 允许重复选同一文件
     });
   }
 
