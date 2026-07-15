@@ -51,7 +51,7 @@
 ## 关键数据约定
 
 - **skin**：逗号分隔字符串（`CCD01,CCD02`，CSV 引号包裹），彻底无 `[]`。`parseSkinList` 兼容旧 JSON 数组
-- **params**：默认空 `''`（连 `{}` 都不预填），强制按 Params Schema 编辑（无 schema 不可编辑，提示去 Schema 页签）
+- **params**：默认空 `''`（连 `{}` 都不预填），强制按 Params Schema 编辑（无 schema 不可编辑，提示去 Schema 页签）。配置表单按 fieldType 用 field-types 注册表渲染（number→`<input type=number>`、boolean→checkbox、date/time 原生 picker），saveBtn 校验 required 空值/类型不匹配（阻断保存）；折叠结果区「配置详情」显示 params 实际 JSON（随 draft 实时刷新）
 - **ParamsSchemas**：`Record<activityKey, ParamsFieldDef[]>`（去掉 byType 类型默认，只按 activityKey）
 - **segmentKeys**：注册表（玩家分群页签），默认 5 种（userLevel/lifeTime/payAmount/version/item）
 - **segments**：表达式字符串，builder 树结构编辑（组级一个且/或，非每行）

@@ -39,6 +39,8 @@ import { renderTimeline } from '@/ui/timeline';
 import { createRecurrenceWizard } from '@/ui/recurrence-wizard';
 import { renderSchemaTab } from '@/ui/schema-tab';
 import { resolveParamsSchema } from '@/schema/params-schema';
+import { getFieldType } from '@/schema/field-types';
+import type { FieldController, FieldDef } from '@/schema/field-types';
 import { renderDependencyTab, renderMutexTab } from '@/ui/relation-tabs';
 import { renderActivityMgmtTab } from '@/ui/activity-management-tab';
 import { renderSegmentTab } from '@/ui/segment-tab';
@@ -727,7 +729,8 @@ export function renderApp(store: Store, root: HTMLElement): void {
       wizardHost.appendChild(wizard.getElement());
     }
 
-    // params 结构化字段（按 resolveParamsSchema 渲染；无 schema 时回退 json input）
+    // params 结构化字段（按 resolveParamsSchema + field-types 注册表渲染；saveBtn 时按类型校验）
+    const paramControllers: FieldController[] = [];
     const paramsHost = formEl.querySelector<HTMLElement>('#paramsHost');
     if (paramsHost) {
       const state = store.getState();
@@ -756,17 +759,29 @@ export function renderApp(store: Store, root: HTMLElement): void {
           store.dispatch({ type: 'DRAFT_EDIT', payload: { field: 'params', value: JSON.stringify(next) } });
         };
         for (const sf of schemaFields) {
+          const ft = getFieldType(sf.fieldType) ?? getFieldType('text');
           const wrap = document.createElement('div');
           wrap.style.cssText = 'margin-bottom:6px;';
           const lbl = document.createElement('label');
-          lbl.textContent = sf.key + (sf.required ? ' *' : '');
+          lbl.textContent = `${sf.key}${sf.required ? ' *' : ''}${ft ? `（${ft.name}）` : ''}`;
           lbl.style.cssText = 'display:block;font-size:12px;margin-bottom:2px;';
           wrap.appendChild(lbl);
-          const input = document.createElement('input');
-          input.value = String(paramsObj[sf.key] ?? sf.default ?? '');
-          input.style.cssText = 'width:100%;padding:4px;border:1px solid var(--color-border);border-radius:3px;';
-          input.addEventListener('change', () => update(sf.key, input.value));
-          wrap.appendChild(input);
+          if (!ft) {
+            paramsHost.appendChild(wrap);
+            continue; // 理论不发生（基础类型均已注册）
+          }
+          const ctrl = ft.create({
+            value: paramsObj[sf.key] ?? sf.default ?? ft.defaultValue(),
+            fieldDef: sf as unknown as FieldDef,
+            onChange: (val) => update(sf.key, val),
+          });
+          paramControllers.push(ctrl);
+          const el = ctrl.getElement();
+          // checkbox 保持原生尺寸；其余类型宽度铺满
+          if (sf.fieldType !== 'boolean') {
+            el.style.cssText = 'width:100%;padding:4px;border:1px solid var(--color-border);border-radius:3px;';
+          }
+          wrap.appendChild(el);
           paramsHost.appendChild(wrap);
         }
       }
@@ -802,6 +817,15 @@ export function renderApp(store: Store, root: HTMLElement): void {
       // 校验 activityKey 非空（v1 保真）
       if (!activityKey || !activityKey.trim()) {
         alert('活动Key不能为空，请填写后再保存');
+        return;
+      }
+      // params 按 fieldType 校验：required 空值 / 类型不匹配 → 阻断保存
+      const paramErrs: string[] = [];
+      for (const ctrl of paramControllers) {
+        for (const e of ctrl.validate()) paramErrs.push(e.message);
+      }
+      if (paramErrs.length) {
+        alert('参数校验未通过，请修正后再保存：\n' + paramErrs.join('\n'));
         return;
       }
       const dep = st.dependencies
@@ -916,6 +940,14 @@ export function renderApp(store: Store, root: HTMLElement): void {
     }
     const row = (label: string, val: string) =>
       `<div style="line-height:1.8;"><span style="color:var(--color-text-tertiary);">${escapeHtml(label)}</span> ${escapeHtml(val)}</div>`;
+    const fmtParams = (raw: string): string => {
+      if (!raw) return '无参数';
+      try {
+        return JSON.stringify(JSON.parse(raw));
+      } catch {
+        return raw + '（非法 JSON）';
+      }
+    };
     const left = `<div class="as-left">
       <div style="color:var(--color-primary);font-weight:600;margin-bottom:4px;">配置详情</div>
       ${row('ID:', cfg.id)}
@@ -927,6 +959,7 @@ export function renderApp(store: Store, root: HTMLElement): void {
       ${row('结束:', cfg.scheduleEndDate || '无限循环')}
       ${row('规则:', '[' + rv.join(',') + ']')}
       ${row('玩家条件:', cfg.segments || '无条件（全体可见）')}
+      ${row('参数:', fmtParams(cfg.params))}
       ${row('持续:', durationHours + 'h')}
       ${row('类型:', getActivityType(cfg, metaMap))}
     </div>`;
