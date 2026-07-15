@@ -6,7 +6,10 @@ import { describe, it, expect } from 'vitest';
 import {
   serializeSegmentExpr,
   parseSegmentExpr,
+  serializeSegmentLines,
+  parseSegmentLines,
   DEFAULT_SEGMENT_KEYS,
+  type SegLine,
 } from '@/model/segment-expr';
 import type { SegmentExpr } from '@/core/types';
 
@@ -105,5 +108,63 @@ describe('segment-expr serialize/parse', () => {
     expect(DEFAULT_SEGMENT_KEYS.map((k) => k.key).sort()).toEqual(
       ['item', 'lifeTime', 'payAmount', 'userLevel', 'version'],
     );
+  });
+});
+
+describe('segment-expr lines（线性模型，行首连接符）', () => {
+  it('单条 serialize（首条无 op）', () => {
+    const lines: SegLine[] = [{ key: 'userLevel', param1: '10', param2: '99999', negate: false, op: null }];
+    expect(serializeSegmentLines(lines)).toBe('userLevel;10#99999');
+  });
+
+  it('多条 serialize（首条无 op，后续且/或/取反）', () => {
+    const lines: SegLine[] = [
+      { key: 'a', param1: '1', param2: '', negate: false, op: null },
+      { key: 'b', param1: '2', param2: '', negate: false, op: 'and' },
+      { key: 'c', param1: '3', param2: '', negate: true, op: 'or' },
+    ];
+    expect(serializeSegmentLines(lines)).toBe('a;1#&b;2#|!c;3#');
+  });
+
+  it('parse 单条（op=null）', () => {
+    const l = parseSegmentLines('userLevel;10#99999');
+    expect(l?.length).toBe(1);
+    expect(l?.[0]?.op).toBeNull();
+  });
+
+  it('parse 多条（且/或/取反）', () => {
+    const l = parseSegmentLines('a;1#&b;2#|!c;3#');
+    expect(l?.length).toBe(3);
+    expect(l?.[0]?.op).toBeNull();
+    expect(l?.[1]?.op).toBe('and');
+    expect(l?.[2]?.op).toBe('or');
+    expect(l?.[2]?.negate).toBe(true);
+  });
+
+  it('parse 空串 → []', () => {
+    expect(parseSegmentLines('')).toEqual([]);
+    expect(parseSegmentLines('   ')).toEqual([]);
+  });
+
+  it('parse 含括号 → null（线性不支持嵌套）', () => {
+    expect(parseSegmentLines('(a;1#)&b;2#')).toBeNull();
+    expect(parseSegmentLines('a;1#|(b;2#&c;3#)')).toBeNull();
+  });
+
+  it('parse 非法 → null', () => {
+    expect(parseSegmentLines('&')).toBeNull();
+    expect(parseSegmentLines('a;1#&')).toBeNull();
+  });
+
+  it('round-trip serialize∘parse 稳定', () => {
+    const lines: SegLine[] = [
+      { key: 'userLevel', param1: '10', param2: '99999', negate: false, op: null },
+      { key: 'lifeTime', param1: '10', param2: '9999', negate: false, op: 'and' },
+      { key: 'version', param1: '10.4.5', param2: '', negate: false, op: 'or' },
+      { key: 'item', param1: 'Energy', param2: '5', negate: true, op: 'and' },
+    ];
+    const s = serializeSegmentLines(lines);
+    const back = parseSegmentLines(s);
+    expect(back).toEqual(lines);
   });
 });

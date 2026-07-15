@@ -567,6 +567,10 @@
 }
 
 /* ===== segments 可视化构建器（扁平条件流）===== */
+}
+
+
+/* ===== segments 构建器（树结构 + 行首且/或 + 单行条件）===== */
 .seg-builder {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -580,27 +584,27 @@
   gap: 4px;
 }
 
-.seg-group-flat {
-  background: white;
-  border: 1px solid var(--color-border-light);
-  border-left: 3px solid var(--color-text-tertiary);
+/* 嵌套组：轻微背景 + 左色条（且绿/或橙） */
+.seg-group {
+  background: #fafafa;
   border-radius: var(--radius-sm);
   padding: 6px 8px;
   margin: 2px 0;
+  border-left: 3px solid var(--color-text-tertiary);
 }
 
-.seg-group-flat[data-op="and"] {
+.seg-group[data-op="and"] {
   border-left-color: var(--color-success);
 }
 
-.seg-group-flat[data-op="or"] {
+.seg-group[data-op="or"] {
   border-left-color: var(--color-warning);
 }
 
 .seg-group-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   margin-bottom: 4px;
 }
 
@@ -610,39 +614,79 @@
   gap: 3px;
 }
 
-.seg-cond {
+/* 条件行：单行 nowrap（行首且/或 + 条件元素横排不换行） */
+.seg-child {
   display: flex;
   align-items: center;
   gap: 5px;
-  flex-wrap: wrap;
-  padding: 3px 4px;
-  background: #fafafa;
-  border-radius: 3px;
+  flex-wrap: nowrap;
 }
 
-.seg-cond select {
-  min-width: 90px;
-  padding: 2px 4px;
+.seg-cond {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.seg-key-sel {
+  min-width: 84px;
+  padding: 3px 5px;
   border: 1px solid var(--color-border);
   border-radius: 3px;
   font-size: 12px;
 }
 
-.seg-param {
+.seg-param-input {
+  width: 52px;
+  padding: 3px 5px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+/* 行首 且/或 圆形色块（点切换） */
+.seg-optag {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  font-size: 11px;
-  color: var(--color-text-secondary);
-  white-space: nowrap;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #f0f0f0;
+  color: #333;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  flex-shrink: 0;
+  transition: background 0.15s;
 }
 
-.seg-param input {
-  width: 64px;
-  padding: 2px 4px;
-  border: 1px solid var(--color-border);
-  border-radius: 3px;
-  font-size: 12px;
+.seg-optag:hover {
+  background: #e0e0e0;
+}
+
+.seg-optag-and {
+  background: #f0f0f0;
+  color: #333;
+}
+
+.seg-optag-or {
+  background: #fff7e6;
+  color: #d46b08;
+}
+
+.seg-optag-or:hover {
+  background: #ffe7ba;
+}
+
+.seg-optag-ph {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
 }
 
 .seg-icon {
@@ -653,6 +697,7 @@
   cursor: pointer;
   font-size: 12px;
   line-height: 1.2;
+  flex-shrink: 0;
 }
 
 .seg-icon.active {
@@ -661,36 +706,26 @@
   border-color: var(--color-warning);
 }
 
-.seg-op {
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  user-select: none;
-  padding: 1px 8px;
-  border-radius: 3px;
-  background: #f0f0f0;
-}
-
-.seg-op-and {
-  color: var(--color-success);
-}
-
-.seg-op-or {
-  color: var(--color-warning);
-}
-
-.seg-op-inline {
-  text-align: center;
-  margin: 1px 0;
-  background: transparent;
-  display: block;
-}
-
 .seg-addbar {
   display: flex;
   gap: 6px;
-  margin-top: 4px;
+  margin-top: 5px;
   flex-wrap: wrap;
+}
+
+.seg-addbar button {
+  padding: 3px 8px;
+  border: 1px dashed var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+  border-radius: 3px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.seg-addbar button:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
 }
 
 .seg-preview {

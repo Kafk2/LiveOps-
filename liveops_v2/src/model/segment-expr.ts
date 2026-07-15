@@ -58,7 +58,7 @@ interface Token {
 }
 
 /** 分词：识别条件 / & / | / ( / ) / ! */
-function tokenize(s: string): Token[] | null {
+export function tokenize(s: string): Token[] | null {
   const tokens: Token[] = [];
   let i = 0;
   while (i < s.length) {
@@ -173,4 +173,74 @@ export function parseSegmentExpr(str: string): SegmentExpr | null {
   if (!expr) return null;
   if (parser.pos !== tokens.length) return null; // 末尾有未消费 token（如多余括号）
   return expr;
+}
+
+// ----------------------------------------------------------------------------
+// 线性模型（builder 编辑用）：条件列表 + 每条前置 op（首条 op=null）
+//
+// 用户交互：第 1 条无连接符；第 2 条起行首默认「且」，点切换「或」。
+// 仅支持无括号的线性表达式（A & B | C ...）；含括号的复杂表达式 parse 返回 null。
+// ----------------------------------------------------------------------------
+
+export interface SegLine {
+  key: string;
+  param1: string;
+  param2: string;
+  negate: boolean;
+  op: 'and' | 'or' | null; // 与前一行关系，首条 null
+}
+
+/** 线性 lines → 表达式（首条无 op，后续 op + cond） */
+export function serializeSegmentLines(lines: SegLine[]): string {
+  return lines
+    .map((l, i) => {
+      const cond = (l.negate ? '!' : '') + `${l.key};${l.param1}#${l.param2}`;
+      if (i === 0 || l.op === null) return cond;
+      return (l.op === 'and' ? '&' : '|') + cond;
+    })
+    .join('');
+}
+
+/** 表达式 → 线性 lines。空串→[]；含括号/非法→null（builder 退化为空重建）。 */
+export function parseSegmentLines(str: string): SegLine[] | null {
+  const s = str.trim();
+  if (!s) return [];
+  const tokens = tokenize(s);
+  if (!tokens) return null;
+  if (tokens.length === 0) return [];
+  // 含括号 → 线性不支持
+  if (tokens.some((t) => t.kind === 'lparen' || t.kind === 'rparen')) return null;
+  const lines: SegLine[] = [];
+  let i = 0;
+  let pendingOp: 'and' | 'or' | null = null;
+  while (i < tokens.length) {
+    let negate = false;
+    while (i < tokens.length && tokens[i]!.kind === 'not') {
+      negate = !negate;
+      i++;
+    }
+    const tok = tokens[i];
+    if (!tok || tok.kind !== 'cond') return null;
+    const v = tok.value ?? '';
+    const semi = v.indexOf(';');
+    const hash = v.indexOf('#');
+    if (semi < 0 || hash < 0) return null;
+    lines.push({
+      key: v.slice(0, semi),
+      param1: v.slice(semi + 1, hash),
+      param2: v.slice(hash + 1),
+      negate,
+      op: pendingOp,
+    });
+    i++;
+    // 下一 op
+    if (i < tokens.length) {
+      const opTok = tokens[i]!;
+      if (opTok.kind === 'and') { pendingOp = 'and'; i++; }
+      else if (opTok.kind === 'or') { pendingOp = 'or'; i++; }
+      else return null;
+      if (i >= tokens.length) return null; // 末尾悬挂运算符（& / | 后无右操作数）
+    }
+  }
+  return lines;
 }

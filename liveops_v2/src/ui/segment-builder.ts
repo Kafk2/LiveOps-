@@ -1,10 +1,10 @@
 /**
- * ui/segment-builder.ts — segments 可视化构建器（扁平条件流，方案 1）
+ * ui/segment-builder.ts — segments 构建器（树结构 + 行首且/或 + 单行紧凑条件）
  *
- * 根 group 扁平渲染（无边框）：children 纵向排列，行间显示「且/或」运算符
- * （点切换所属组 op）。条件压成紧凑单行（取反 + key + 两参数 + 删除）。
- * 用户「+ 分组」才出现嵌套组（浅背景容器，头标 op/取反/删除）。
- * 树结构/算法（parse/serialize/applyAtPath）不变，仅改渲染与编辑交互。
+ * - 根 group 扁平；嵌套「且/或组」轻微背景容器（保留组合能力）
+ * - 条件单行 nowrap：[行首且/或圆] [!取反] [key▼] [参数1] [参数2] [✕]
+ * - 行首「且/或」圆形色块（点切换所属组 op）
+ * - + 条件 / + 且组 / + 或组
  */
 
 import type { SegmentExpr, SegmentKeyDef } from '@/core/types';
@@ -29,7 +29,6 @@ function parseToRoot(value: string): SegmentExpr {
   return p;
 }
 
-/** 不可变更新 path 处的节点 */
 function applyAtPath(node: SegmentExpr, path: string, fn: (n: SegmentExpr) => SegmentExpr): SegmentExpr {
   if (path === '') return fn(node);
   const segs = path.split('.');
@@ -42,8 +41,8 @@ function applyAtPath(node: SegmentExpr, path: string, fn: (n: SegmentExpr) => Se
 
 export function createSegmentBuilder(opts: SegmentBuilderOpts): SegmentBuilderHandle {
   let tree: SegmentExpr = parseToRoot(opts.value);
-  const root = document.createElement('div');
-  root.className = 'seg-builder';
+  const rootEl = document.createElement('div');
+  rootEl.className = 'seg-builder';
   let previewEl: HTMLElement | null = null;
 
   function refreshPreview(): void {
@@ -59,15 +58,12 @@ export function createSegmentBuilder(opts: SegmentBuilderOpts): SegmentBuilderHa
     emit();
     refreshPreview();
   }
-
-  function h(cls: string): HTMLElement {
+  function div(cls: string): HTMLElement {
     const e = document.createElement('div');
     e.className = cls;
     return e;
   }
-
-  // 小图标按钮（取反/删除）
-  function iconBtn(text: string, title: string, active: boolean, onClick: () => void): HTMLElement {
+  function iconBtn(text: string, title: string, active: boolean, onClick: () => void): HTMLButtonElement {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'seg-icon' + (active ? ' active' : '');
@@ -76,41 +72,49 @@ export function createSegmentBuilder(opts: SegmentBuilderOpts): SegmentBuilderHa
     b.addEventListener('click', onClick);
     return b;
   }
-
-  /** 运算符连接器（且/或），点切换所属 group op */
-  function opConnector(op: 'and' | 'or', path: string, inline: boolean): HTMLElement {
-    const el = document.createElement(inline ? 'span' : 'div');
-    el.className = 'seg-op ' + (op === 'and' ? 'seg-op-and' : 'seg-op-or') + (inline ? ' seg-op-inline' : '');
+  function opConnector(op: 'and' | 'or', path: string): HTMLElement {
+    const el = document.createElement('span');
+    el.className = 'seg-optag ' + (op === 'and' ? 'seg-optag-and' : 'seg-optag-or');
     el.textContent = op === 'and' ? '且' : '或';
-    el.title = '点击切换 且/或';
+    el.title = '切换 且/或';
     el.addEventListener('click', () => {
       updateNode(path, (n) => (n.type === 'group' ? { ...n, op: n.op === 'and' ? 'or' : 'and' } : n));
       render();
     });
     return el;
   }
-
-  function paramInline(label: string, val: string, path: string, field: 'param1' | 'param2'): HTMLElement {
-    const w = document.createElement('label');
-    w.className = 'seg-param';
-    const l = document.createElement('span');
-    l.textContent = label;
-    w.appendChild(l);
+  function paramInput(placeholder: string, val: string, path: string, field: 'param1' | 'param2'): HTMLInputElement {
     const i = document.createElement('input');
+    i.className = 'seg-param-input';
     i.value = val;
-    i.placeholder = '空';
+    i.placeholder = placeholder;
     i.addEventListener('input', () => updateNode(path, (n) => (n.type === 'condition' ? { ...n, [field]: i.value } : n)));
-    w.appendChild(i);
-    return w;
+    return i;
+  }
+  function deleteNode(path: string): void {
+    const segs = path.split('.');
+    const idx = parseInt(segs.pop()!, 10);
+    const parentPath = segs.join('.');
+    tree = applyAtPath(tree, parentPath, (n) =>
+      n.type === 'group' ? { ...n, children: n.children.filter((_, i) => i !== idx) } : n,
+    );
+    emit();
+    render();
+  }
+  function addChild(path: string, child: SegmentExpr): void {
+    tree = applyAtPath(tree, path, (n) => (n.type === 'group' ? { ...n, children: [...n.children, child] } : n));
+    emit();
+    render();
   }
 
   function renderCondition(node: Extract<SegmentExpr, { type: 'condition' }>, path: string): HTMLElement {
-    const wrap = h('seg-cond');
+    const wrap = div('seg-cond');
     wrap.appendChild(iconBtn('!', '取反', node.negate, () => {
       updateNode(path, (n) => ({ ...n, negate: !n.negate }));
       render();
     }));
     const sel = document.createElement('select');
+    sel.className = 'seg-key-sel';
     opts.segmentKeys.forEach((k) => {
       const o = document.createElement('option');
       o.value = k.key;
@@ -121,7 +125,7 @@ export function createSegmentBuilder(opts: SegmentBuilderOpts): SegmentBuilderHa
     if (node.key && !opts.segmentKeys.some((k) => k.key === node.key)) {
       const o = document.createElement('option');
       o.value = node.key;
-      o.textContent = node.key + '（未注册）';
+      o.textContent = node.key + '(未注册)';
       o.selected = true;
       sel.appendChild(o);
     }
@@ -131,33 +135,19 @@ export function createSegmentBuilder(opts: SegmentBuilderOpts): SegmentBuilderHa
     });
     wrap.appendChild(sel);
     const keyDef = opts.segmentKeys.find((k) => k.key === node.key);
-    wrap.appendChild(paramInline(keyDef?.param1Label ?? 'p1', node.param1, path, 'param1'));
-    wrap.appendChild(paramInline(keyDef?.param2Label ?? 'p2', node.param2, path, 'param2'));
-    wrap.appendChild(iconBtn('✕', '删除', false, () => {
-      const segs = path.split('.');
-      const idx = parseInt(segs.pop()!, 10);
-      const parentPath = segs.join('.');
-      tree = applyAtPath(tree, parentPath, (n) =>
-        n.type === 'group' ? { ...n, children: n.children.filter((_, i) => i !== idx) } : n,
-      );
-      emit();
-      render();
-    }));
+    wrap.appendChild(paramInput(keyDef?.param1Label ?? 'p1', node.param1, path, 'param1'));
+    wrap.appendChild(paramInput(keyDef?.param2Label ?? 'p2', node.param2, path, 'param2'));
+    wrap.appendChild(iconBtn('✕', '删除', false, () => deleteNode(path)));
     return wrap;
   }
 
   function addBar(path: string): HTMLElement {
-    const bar = h('seg-addbar');
+    const bar = div('seg-addbar');
     const mk = (text: string, child: SegmentExpr) => {
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'btn btn-secondary btn-sm';
       b.textContent = text;
-      b.addEventListener('click', () => {
-        tree = applyAtPath(tree, path, (n) => (n.type === 'group' ? { ...n, children: [...n.children, child] } : n));
-        emit();
-        render();
-      });
+      b.addEventListener('click', () => addChild(path, child));
       return b;
     };
     const firstKey = opts.segmentKeys[0]?.key ?? 'userLevel';
@@ -169,32 +159,25 @@ export function createSegmentBuilder(opts: SegmentBuilderOpts): SegmentBuilderHa
 
   function renderGroup(node: Extract<SegmentExpr, { type: 'group' }>, path: string): HTMLElement {
     const isRoot = path === '';
-    const wrap = isRoot ? h('seg-root') : h('seg-group-flat');
+    const wrap = isRoot ? div('seg-root') : div('seg-group');
     wrap.dataset.op = node.op;
     if (!isRoot) {
-      const head = h('seg-group-head');
-      head.appendChild(opConnector(node.op, path, false));
+      const head = div('seg-group-head');
+      head.appendChild(opConnector(node.op, path));
       head.appendChild(iconBtn('!', '取反', node.negate, () => {
         updateNode(path, (n) => ({ ...n, negate: !n.negate }));
         render();
       }));
-      head.appendChild(iconBtn('✕', '删除', false, () => {
-        const segs = path.split('.');
-        const idx = parseInt(segs.pop()!, 10);
-        const parentPath = segs.join('.');
-        tree = applyAtPath(tree, parentPath, (n) =>
-          n.type === 'group' ? { ...n, children: n.children.filter((_, i) => i !== idx) } : n,
-        );
-        emit();
-        render();
-      }));
+      head.appendChild(iconBtn('✕', '删除', false, () => deleteNode(path)));
       wrap.appendChild(head);
     }
-    const body = h('seg-group-body');
+    const body = div('seg-group-body');
     node.children.forEach((c, i) => {
       const childPath = isRoot ? String(i) : `${path}.${i}`;
-      if (i > 0) body.appendChild(opConnector(node.op, path, true)); // 行间运算符
-      body.appendChild(renderNode(c, childPath));
+      const childWrap = div('seg-child');
+      childWrap.appendChild(i > 0 ? opConnector(node.op, path) : div('seg-optag-ph'));
+      childWrap.appendChild(renderNode(c, childPath));
+      body.appendChild(childWrap);
     });
     wrap.appendChild(body);
     wrap.appendChild(addBar(path));
@@ -206,23 +189,23 @@ export function createSegmentBuilder(opts: SegmentBuilderOpts): SegmentBuilderHa
   }
 
   function render(): void {
-    root.innerHTML = '';
-    root.appendChild(renderNode(tree, ''));
-    previewEl = h('seg-preview');
-    root.appendChild(previewEl);
+    rootEl.innerHTML = '';
+    rootEl.appendChild(renderNode(tree, ''));
+    previewEl = div('seg-preview');
+    rootEl.appendChild(previewEl);
     refreshPreview();
   }
 
   render();
 
   return {
-    getElement: () => root,
+    getElement: () => rootEl,
     refresh(value: string) {
       tree = parseToRoot(value);
       render();
     },
     destroy() {
-      root.innerHTML = '';
+      rootEl.innerHTML = '';
     },
   };
 }
