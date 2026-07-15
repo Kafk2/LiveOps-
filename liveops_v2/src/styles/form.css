@@ -584,6 +584,18 @@
   gap: 4px;
 }
 
+.seg-root-op {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+
+.seg-op-hint {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
 /* 嵌套组：轻微背景 + 左色条（且绿/或橙） */
 .seg-group {
   background: #fafafa;

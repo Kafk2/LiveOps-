@@ -161,7 +161,17 @@ export function createSegmentBuilder(opts: SegmentBuilderOpts): SegmentBuilderHa
     const isRoot = path === '';
     const wrap = isRoot ? div('seg-root') : div('seg-group');
     wrap.dataset.op = node.op;
-    if (!isRoot) {
+    if (isRoot) {
+      // 根：顶部一个「且/或」标记（组级，非每行重复），点切换全组 op
+      const opBar = div('seg-root-op');
+      opBar.appendChild(opConnector(node.op, path));
+      const hint = document.createElement('span');
+      hint.className = 'seg-op-hint';
+      hint.textContent = '满足以下条件';
+      opBar.appendChild(hint);
+      wrap.appendChild(opBar);
+    } else {
+      // 嵌套组：头一个 op + 取反 + 删除
       const head = div('seg-group-head');
       head.appendChild(opConnector(node.op, path));
       head.appendChild(iconBtn('!', '取反', node.negate, () => {
@@ -174,10 +184,7 @@ export function createSegmentBuilder(opts: SegmentBuilderOpts): SegmentBuilderHa
     const body = div('seg-group-body');
     node.children.forEach((c, i) => {
       const childPath = isRoot ? String(i) : `${path}.${i}`;
-      const childWrap = div('seg-child');
-      childWrap.appendChild(i > 0 ? opConnector(node.op, path) : div('seg-optag-ph'));
-      childWrap.appendChild(renderNode(c, childPath));
-      body.appendChild(childWrap);
+      body.appendChild(renderNode(c, childPath)); // 条件行无行首连接符（组级 op 已在上方）
     });
     wrap.appendChild(body);
     wrap.appendChild(addBar(path));
