@@ -41,6 +41,7 @@ import { renderSchemaTab } from '@/ui/schema-tab';
 import { resolveParamsSchema } from '@/schema/params-schema';
 import { getFieldType } from '@/schema/field-types';
 import type { FieldController, FieldDef } from '@/schema/field-types';
+import { parseParamsVariants, serializeParamsVariants, type ParamVariant } from '@/model/params';
 import { renderDependencyTab, renderMutexTab } from '@/ui/relation-tabs';
 import { renderActivityMgmtTab } from '@/ui/activity-management-tab';
 import { renderSegmentTab } from '@/ui/segment-tab';
@@ -729,62 +730,107 @@ export function renderApp(store: Store, root: HTMLElement): void {
       wizardHost.appendChild(wizard.getElement());
     }
 
-    // params 结构化字段（按 resolveParamsSchema + field-types 注册表渲染；saveBtn 时按类型校验）
-    const paramControllers: FieldController[] = [];
+    // params 多循环类型（变体数组，逗号裸拼接 {…},{…}；每变体共用同一 schema）
+    const paramControllers: { ctrl: FieldController; label: string }[] = [];
     const paramsHost = formEl.querySelector<HTMLElement>('#paramsHost');
     if (paramsHost) {
-      const state = store.getState();
-      const schemaFields = resolveParamsSchema(state.settings.paramsSchemas, config.activityKey);
-      const draftNow = store.getState().editor.draft;
-      const paramsStr = draftNow?.params ?? config.params;
-      let paramsObj: Record<string, unknown> = {};
-      if (paramsStr) {
-        try {
-          const p = JSON.parse(paramsStr);
-          if (p && typeof p === 'object' && !Array.isArray(p)) paramsObj = p as Record<string, unknown>;
-        } catch {
-          // 脏 JSON：忽略，按空对象渲染（保存时不写脏值）
+      // 当前最新 variants（从 draft 读，保证多卡片并发编辑不互相覆盖）
+      const curVariants = (): ParamVariant[] =>
+        parseParamsVariants(store.getState().editor.draft?.params ?? config.params);
+      const renderParams = (): void => {
+        paramsHost.innerHTML = '';
+        const st = store.getState();
+        const schemaFields = resolveParamsSchema(st.settings.paramsSchemas, config.activityKey);
+        if (schemaFields.length === 0) {
+          // 无 Params Schema：提示去 Schema 编辑器定义
+          const tip = document.createElement('div');
+          tip.className = 'hint';
+          tip.style.cssText = 'padding:10px;background:#f5f5f5;border-radius:4px;line-height:1.6;';
+          tip.textContent = '该活动暂无 Params Schema。请在「Schema 编辑」页签定义参数结构后，再在此配置参数。';
+          paramsHost.appendChild(tip);
+          return;
         }
-      }
-      if (schemaFields.length === 0) {
-        // 无 Params Schema：不可自由编辑（只能配置 Schema 已定义的结构），提示去 Schema 编辑器定义
-        const tip = document.createElement('div');
-        tip.className = 'hint';
-        tip.style.cssText = 'padding:10px;background:#f5f5f5;border-radius:4px;line-height:1.6;';
-        tip.textContent = '该活动暂无 Params Schema。请在「Schema 编辑」页签定义参数结构后，再在此配置参数。';
-        paramsHost.appendChild(tip);
-      } else {
-        const update = (key: string, val: unknown) => {
-          const next = { ...paramsObj, [key]: val };
-          store.dispatch({ type: 'DRAFT_EDIT', payload: { field: 'params', value: JSON.stringify(next) } });
+        const paramsStr = st.editor.draft?.params ?? config.params;
+        const variants = parseParamsVariants(paramsStr);
+        paramControllers.length = 0;
+        // 写回整个 variants 到 draft.params（新增/删除/字段编辑统一入口）
+        const commit = (next: ParamVariant[]): void => {
+          store.dispatch({ type: 'DRAFT_EDIT', payload: { field: 'params', value: serializeParamsVariants(next) } });
         };
-        for (const sf of schemaFields) {
-          const ft = getFieldType(sf.fieldType) ?? getFieldType('text');
-          const wrap = document.createElement('div');
-          wrap.style.cssText = 'margin-bottom:6px;';
-          const lbl = document.createElement('label');
-          lbl.textContent = `${sf.key}${sf.required ? ' *' : ''}${ft ? `（${ft.name}）` : ''}`;
-          lbl.style.cssText = 'display:block;font-size:12px;margin-bottom:2px;';
-          wrap.appendChild(lbl);
-          if (!ft) {
-            paramsHost.appendChild(wrap);
-            continue; // 理论不发生（基础类型均已注册）
-          }
-          const ctrl = ft.create({
-            value: paramsObj[sf.key] ?? sf.default ?? ft.defaultValue(),
-            fieldDef: sf as unknown as FieldDef,
-            onChange: (val) => update(sf.key, val),
+
+        variants.forEach((variant, vi) => {
+          const card = document.createElement('div');
+          card.style.cssText =
+            'border:1px solid var(--color-border);border-radius:4px;padding:8px 10px;margin-bottom:8px;background:#fafafa;';
+          const head = document.createElement('div');
+          head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;';
+          const title = document.createElement('span');
+          title.style.cssText = 'font-size:13px;font-weight:600;color:var(--color-primary);';
+          title.textContent = `循环类型 ${vi + 1}`;
+          const delBtn = document.createElement('button');
+          delBtn.className = 'btn btn-danger btn-sm';
+          delBtn.textContent = '× 删除';
+          delBtn.addEventListener('click', () => {
+            const cur = curVariants();
+            cur.splice(vi, 1);
+            commit(cur);
+            renderParams();
           });
-          paramControllers.push(ctrl);
-          const el = ctrl.getElement();
-          // checkbox 保持原生尺寸；其余类型宽度铺满
-          if (sf.fieldType !== 'boolean') {
-            el.style.cssText = 'width:100%;padding:4px;border:1px solid var(--color-border);border-radius:3px;';
+          head.appendChild(title);
+          head.appendChild(delBtn);
+          card.appendChild(head);
+
+          for (const sf of schemaFields) {
+            const ft = getFieldType(sf.fieldType) ?? getFieldType('text');
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'margin-bottom:6px;';
+            const lbl = document.createElement('label');
+            lbl.textContent = `${sf.key}${sf.required ? ' *' : ''}${ft ? `（${ft.name}）` : ''}`;
+            lbl.style.cssText = 'display:block;font-size:12px;margin-bottom:2px;';
+            wrap.appendChild(lbl);
+            if (!ft) {
+              card.appendChild(wrap);
+              continue; // 理论不发生（基础类型均已注册）
+            }
+            const ctrl = ft.create({
+              value: variant[sf.key] ?? sf.default ?? ft.defaultValue(),
+              fieldDef: sf as unknown as FieldDef,
+              onChange: (val) => {
+                const cur = curVariants();
+                let target = cur[vi];
+                if (!target) {
+                  target = {};
+                  cur[vi] = target;
+                }
+                target[sf.key] = val;
+                commit(cur);
+              },
+            });
+            paramControllers.push({ ctrl, label: `循环类型 ${vi + 1} · ${sf.key}` });
+            const el = ctrl.getElement();
+            // checkbox 保持原生尺寸；其余类型宽度铺满
+            if (sf.fieldType !== 'boolean') {
+              el.style.cssText = 'width:100%;padding:4px;border:1px solid var(--color-border);border-radius:3px;';
+            }
+            wrap.appendChild(el);
+            card.appendChild(wrap);
           }
-          wrap.appendChild(el);
-          paramsHost.appendChild(wrap);
-        }
-      }
+          paramsHost.appendChild(card);
+        });
+
+        // 底部：新增循环类型
+        const addBtn = document.createElement('button');
+        addBtn.className = 'btn btn-primary btn-sm';
+        addBtn.textContent = '+ 新增循环类型';
+        addBtn.addEventListener('click', () => {
+          const cur = curVariants();
+          cur.push({});
+          commit(cur);
+          renderParams();
+        });
+        paramsHost.appendChild(addBtn);
+      };
+      renderParams();
     }
 
     // segments 可视化构建器（从 config/draft.segments 解析树，编辑写 draft.segments）
@@ -819,10 +865,10 @@ export function renderApp(store: Store, root: HTMLElement): void {
         alert('活动Key不能为空，请填写后再保存');
         return;
       }
-      // params 按 fieldType 校验：required 空值 / 类型不匹配 → 阻断保存
+      // params 按 fieldType 校验（所有循环类型 × 所有字段）：required 空值 / 类型不匹配 → 阻断保存
       const paramErrs: string[] = [];
-      for (const ctrl of paramControllers) {
-        for (const e of ctrl.validate()) paramErrs.push(e.message);
+      for (const { ctrl, label } of paramControllers) {
+        for (const e of ctrl.validate()) paramErrs.push(`[${label}] ${e.message}`);
       }
       if (paramErrs.length) {
         alert('参数校验未通过，请修正后再保存：\n' + paramErrs.join('\n'));
@@ -942,11 +988,9 @@ export function renderApp(store: Store, root: HTMLElement): void {
       `<div style="line-height:1.8;"><span style="color:var(--color-text-tertiary);">${escapeHtml(label)}</span> ${escapeHtml(val)}</div>`;
     const fmtParams = (raw: string): string => {
       if (!raw) return '无参数';
-      try {
-        return JSON.stringify(JSON.parse(raw));
-      } catch {
-        return raw + '（非法 JSON）';
-      }
+      const variants = parseParamsVariants(raw);
+      if (variants.length === 0) return raw + '（非法 JSON）';
+      return serializeParamsVariants(variants);
     };
     const left = `<div class="as-left">
       <div style="color:var(--color-primary);font-weight:600;margin-bottom:4px;">配置详情</div>

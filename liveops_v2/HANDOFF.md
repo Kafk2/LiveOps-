@@ -52,6 +52,7 @@
 
 - **skin**：逗号分隔字符串（`CCD01,CCD02`，CSV 引号包裹），彻底无 `[]`。`parseSkinList` 兼容旧 JSON 数组
 - **params**：默认空 `''`（连 `{}` 都不预填），强制按 Params Schema 编辑（无 schema 不可编辑，提示去 Schema 页签）。配置表单按 fieldType 用 field-types 注册表渲染（number→`<input type=number>`、boolean→checkbox、date/time 原生 picker），saveBtn 校验 required 空值/类型不匹配（阻断保存）；折叠结果区「配置详情」显示 params 实际 JSON（随 draft 实时刷新）
+- **params 多变体**：活动可多循环配置，params 存多 `{…}` 逗号裸拼接（无外层 []，`model/params.ts` parseParamsVariants/serializeParamsVariants，兼容单对象/外层[]/脏片段/值含逗号括号）；配置表单「+ 新增循环类型」按钮增删变体，每变体共用同一 schema（field-types 渲染），saveBtn 校验所有变体×所有字段（错误带「循环类型 N · 字段」前缀）
 - **ParamsSchemas**：`Record<activityKey, ParamsFieldDef[]>`（去掉 byType 类型默认，只按 activityKey）
 - **segmentKeys**：注册表（玩家分群页签），默认 5 种（userLevel/lifeTime/payAmount/version/item）
 - **segments**：表达式字符串，builder 树结构编辑（组级一个且/或，非每行）
@@ -73,8 +74,9 @@
 ## 当前状态（本次提交）
 
 - params schema + configs 本地持久化落地（localStorage 自动存 + 导出/导入备份），刷新不丢
+- params 多变体（多循环类型，逗号裸拼接）落地（model/params.ts + tests 22 用例）
 - segments 构建器：树结构，**组级一个且/或**（根顶部 + 嵌套组头，条件行无行首连接符），条件单行紧凑，嵌套组轻微背景+左色条
-- 71 测试 + tsc + build 通过
+- 93 测试（71+22 params）+ tsc + build 通过
 - 工作树干净
 
 ## 待办候选（下一步，用户定方向）
